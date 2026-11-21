@@ -66,7 +66,7 @@ _ALLOWED_COMPARE_OPERATORS = (
 _ALLOWED_NODE_TYPES = (
     ast.Module, ast.Expr, ast.Assign, ast.AugAssign, ast.For, ast.If,
     ast.Name, ast.Load, ast.Store, ast.Constant, ast.List, ast.Tuple, ast.Dict,
-    ast.UnaryOp, ast.UAdd, ast.USub, ast.Not, ast.BinOp, ast.Add, ast.Sub,
+    ast.Subscript, ast.Slice, ast.UnaryOp, ast.UAdd, ast.USub, ast.Not, ast.BinOp, ast.Add, ast.Sub,
     ast.Mult, ast.Div, ast.FloorDiv, ast.Mod, ast.Attribute, ast.Call,
     ast.keyword, ast.Compare, ast.Eq, ast.NotEq, ast.Lt, ast.LtE, ast.Gt,
     ast.GtE, ast.Is, ast.IsNot, ast.In, ast.NotIn, ast.BoolOp, ast.And, ast.Or,
@@ -400,6 +400,26 @@ def _infer_expression_type(node: ast.AST, environment: dict[str, object]) -> obj
         return environment.get(node.id)
     if isinstance(node, (ast.Tuple, ast.List)):
         return tuple if isinstance(node, ast.Tuple) else list
+    if isinstance(node, ast.Dict):
+        return dict
+    if isinstance(node, ast.Subscript):
+        container_type = _infer_expression_type(node.value, environment)
+        if container_type in {list, tuple, str}:
+            if isinstance(node.value, (ast.List, ast.Tuple)) and isinstance(node.slice, ast.Constant) and type(node.slice.value) is int:
+                items = node.value.elts
+                index = node.slice.value
+                if -len(items) <= index < len(items):
+                    return _infer_expression_type(items[index], environment)
+            if isinstance(node.value, (ast.List, ast.Tuple)) and node.value.elts:
+                item_types = {_infer_expression_type(item, environment) for item in node.value.elts}
+                if len(item_types) == 1:
+                    return next(iter(item_types))
+            return None
+        if container_type is dict and isinstance(node.value, ast.Dict):
+            for key, value in zip(node.value.keys, node.value.values):
+                if key is not None and isinstance(node.slice, ast.Constant) and key.value == node.slice.value:
+                    return _infer_expression_type(value, environment)
+        return None
     if isinstance(node, ast.Attribute):
         owner = _infer_expression_type(node.value, environment)
         if owner is AIStudio:
@@ -557,6 +577,63 @@ def _validate_call_arguments(
             )
 
 
+def _validate_subscript(
+    node: ast.Subscript,
+    environment: dict[str, object],
+    fail,
+    source: str,
+) -> None:
+    container_type = _infer_expression_type(node.value, environment)
+    if container_type not in {list, tuple, dict, str}:
+        expression = ast.get_source_segment(source, node.value) or "this value"
+        fail(
+            node,
+            f"Indexing is only supported on lists, tuples, dictionaries, and strings; {expression} is not a recognized container.",
+            suggestion="Store values in a list, tuple, or dictionary before indexing.",
+            code="unsupported-subscript-container",
+        )
+    if isinstance(node.slice, ast.Slice):
+        if container_type not in {list, tuple, str}:
+            fail(
+                node.slice,
+                "Slices are only supported on lists, tuples, and strings.",
+",
+                suggestion="Use a single key when indexing a dictionary.",
+",
+                code="invalid-subscript-slice",
+            )
+        for bound in (node.slice.lower, node.slice.upper, node.slice.step):
+            if bound is not None and _infer_expression_type(bound, environment) not in {int, None}:
+                fail(
+                    bound,
+                    "Slice bounds must be integers.",
+",
+                    suggestion="Use integer slice bounds, such as values[:3] or values[1:4].",
+",
+                    code="invalid-subscript-slice",
+            )
+    else:
+        index_type = _infer_expression_type(node.slice, environment)
+        if index_type not in {int, str, None}:
+            fail(
+                node.slice,
+                "List/tuple/string indices must be integers; dictionary keys must be strings or integers.",
+",
+                suggestion="Use an integer index or a string/integer dictionary key.",
+",
+                code="invalid-subscript-index",
+            )
+        if container_type in {list, tuple, str} and index_type not in {int, None}:
+            fail(
+                node.slice,
+                "List, tuple, and string indices must be integers.",
+",
+                suggestion="Use an integer index such as items[0] or items[index].",
+",
+                code="invalid-subscript-index",
+            )
+
+
 def _validate_dataflow(tree: ast.Module, fail, source: str) -> None:
     """Reject forward references and names that are not defined on every path."""
     environment: dict[str, object] = {
@@ -567,6 +644,8 @@ def _validate_dataflow(tree: ast.Module, fail, source: str) -> None:
 
     def check_expression(expression: ast.AST, current: dict[str, object]) -> None:
         for child in ast.walk(expression):
+            if isinstance(child, ast.Subscript):
+                _validate_subscript(child, current, fail, source)
             if isinstance(child, ast.Name) and isinstance(child.ctx, ast.Load):
                 if child.id not in current:
                     fail(
