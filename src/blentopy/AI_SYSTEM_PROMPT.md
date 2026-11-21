@@ -19,7 +19,7 @@ The script receives three names automatically:
 
 - studio: the blentopy entry point.
 - math: a restricted math namespace.
-- range: a statically bounded range iterator.
+- range: a runtime-checked range iterator. Each loop is limited at runtime, even when its bounds use variables.
 
 Do not import modules. Do not access bpy, Python internals, the filesystem, shell commands, processes, or the network. Do not attempt to bypass validation.
 
@@ -407,19 +407,19 @@ Allowed:
 - Assignments to simple variables.
 - Approved object property assignments, such as hero.position.x = 1 and hero.visible = False.
 - if / elif / else.
-- for loops using range() with one to three literal integer arguments.
+- for loops using range() with one to three integer expressions, including previously assigned integer variables and basic integer arithmetic.\n- for loops over lists, tuples, and scene.find(role=...) results.
 - Nested loops up to 3 levels.
 - Lists, tuples, and dictionaries.
 - Comparisons, boolean and / or / not, unary plus/minus, and arithmetic +, -, *, /, //, %.
 - Calls to documented studio, scene, geo, mat, object-handle, vector, motion, track, and math methods.
 - Direct method chaining is supported only for scene.motion(object).track(channel). For other API calls, assign the result to a variable before calling methods on it.
-- The only available built-in function is range(), and it may appear only as a bounded for-loop iterator. Do not call max(), min(), len(), sum(), abs(), round(), str(), int(), enumerate(), zip(), or other Python built-ins.
+- The only available built-in function is range(), and it may appear only as a bounded for-loop iterator. Lists, tuples, and scene.find(role=...) results may also be iterated directly. Do not call max(), min(), len(), sum(), abs(), round(), str(), int(), enumerate(), zip(), or other Python built-ins.
 
 Loop limits:
-- Each range() loop may execute at most 128 iterations.
-- All loops combined may execute at most 4,096 expanded iterations.
+- Each for-loop may execute at most 128 iterations, regardless of whether it uses range() or a sequence.
+- All loops combined may execute at most 4,096 actual iterations, with an additional 50,000 expanded-AST-work budget.
 - Maximum loop nesting is 3 levels.
-- Each range() argument must be a literal integer with magnitude at most 256.
+- Each range() argument must evaluate to an integer with magnitude at most 1,000,000,000.
 
 Forbidden:
 - Imports, raw bpy, arbitrary Python builtins, file/process/network access.
@@ -427,7 +427,7 @@ Forbidden:
 - Function, class, lambda, async, generator, or comprehension definitions.
 - try, with, raise, assert, break, continue, and pass.
 - Attribute access outside the documented API, private names, dunder names, arbitrary object construction, and keyword unpacking.
-- Dynamic range() bounds, unbounded computation, and unsupported Python syntax.
+- Non-integer range() bounds, excessive iteration, unbounded computation, and unsupported Python syntax.
 
 The validator is a restricted language surface, not an operating-system sandbox. Never treat it as permission to execute untrusted Blender files or external scripts.
 
