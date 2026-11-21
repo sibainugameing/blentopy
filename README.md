@@ -1,6 +1,6 @@
 # blentopy
 
-**A Python-first local bridge for creating Blender scenes, inspecting them in the Blender GUI, and rendering MP4 videos.**
+**An AI-native Python scene framework for building, inspecting, animating, and rendering Blender scenes.**
 
 blentopy is not an AI model and does not call a hosted AI API. An MCP-capable chat client (or a person writing a scene script) supplies Python code. blentopy validates that code, launches the local Blender executable, builds the scene, and can export an editable Blender project and an MP4 video. No AI API key is required by blentopy.
 
@@ -35,6 +35,7 @@ blentopy is not an AI model and does not call a hosted AI API. An MCP-capable ch
 - Create planes, beveled cubes, UV/icosphere meshes, cylinders, cones, tori, and 3D text.
 - Configure metallic, rough, coated, and emissive materials; cameras with depth of field; area and sun lights.
 - Build repeated scene details with bounded loops and arithmetic.
+- Use an AI-native scene graph with reusable geometry/material specs, object handles, groups, semantic placement, camera framing, custom meshes, and second-based animation tracks.
 - Animate object transforms and camera moves with selectable interpolation.
 - Add existing audio files to the Video Sequence Editor (VSE).
 - Render an MP4 video using H.264 video and AAC audio.
@@ -357,7 +358,7 @@ The API is deliberately layered: use scene-level intent helpers for ordinary com
 
 See [docs/AI_SYSTEM_PROMPT.md](docs/AI_SYSTEM_PROMPT.md) for the authoritative API reference and scripting contract.
 
-## Studio API reference
+## Legacy Studio API reference
 
 ### Common values
 
