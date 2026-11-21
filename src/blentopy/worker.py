@@ -37,13 +37,15 @@ def main() -> int:
         namespace = {"studio": studio, "math": math, "range": range, "__builtins__": {}}
         exec(code, namespace, namespace)
         scene_snapshot = studio.scene.inspect()
+        report = None
         if scene_snapshot["object_count"]:
-            print("BLENTOPY_SCENE_SNAPSHOT=" + json.dumps(scene_snapshot, ensure_ascii=False), flush=True)
             report = studio.scene.validate()
-            print("BLENTOPY_SCENE_REPORT=" + json.dumps(report, ensure_ascii=False), flush=True)
             if not report["ok"]:
                 raise RuntimeError("AI-native scene validation failed: " + "; ".join(report["errors"]))
         rendered, saved_blend = studio.render()
+        if report is not None:
+            print("BLENTOPY_SCENE_SNAPSHOT=" + json.dumps(scene_snapshot, ensure_ascii=False), flush=True)
+            print("BLENTOPY_SCENE_REPORT=" + json.dumps(report, ensure_ascii=False), flush=True)
         print(f"BLENTOPY_RENDER_OK={rendered}", flush=True)
         print(f"BLENTOPY_BLEND_OK={saved_blend}", flush=True)
         return 0
