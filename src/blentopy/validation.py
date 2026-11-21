@@ -94,35 +94,223 @@ class ScriptValidationError(ValueError):
         self.code = code
 
 
-def _literal_range(node: ast.For) -> range:
-    call = node.iter
-    if (
-        not isinstance(call, ast.Call)
-        or not isinstance(call.func, ast.Name)
-        or call.func.id != "range"
-        or call.keywords
-        or not 1 <= len(call.args) <= 3
-    ):
-        raise ScriptValidationError(
-            "Loops must use range() with one to three literal integer arguments."
+MAX_RANGE_ARGUMENT = 1_000_000_000
+
+
+def _is_range_call(node: ast.AST) -> bool:
+    return (
+        isinstance(node, ast.Call)
+        and isinstance(node.func, ast.Name)
+        and node.func.id == "range"
+        and not node.keywords
+        and 1 <= len(node.args) <= 3
+    )
+
+
+def _is_integer_expression(node: ast.AST) -> bool:
+    if isinstance(node, ast.Constant):
+        return type(node.value) is int
+    if isinstance(node, ast.Name):
+        return not node.id.startswith("_")
+    if isinstance(node, ast.UnaryOp):
+        return isinstance(node.op, (ast.UAdd, ast.USub)) and _is_integer_expression(node.operand)
+    if isinstance(node, ast.BinOp):
+        return (
+            isinstance(node.op, (ast.Add, ast.Sub, ast.Mult, ast.FloorDiv, ast.Mod))
+            and _is_integer_expression(node.left)
+            and _is_integer_expression(node.right)
         )
-    values = []
-    for argument in call.args:
-        if not isinstance(argument, ast.Constant) or type(argument.value) is not int:
-            raise ScriptValidationError("range() arguments must be literal integers.")
-        if abs(argument.value) > 256:
-            raise ScriptValidationError("range() arguments may not exceed 256 in magnitude.")
-        values.append(argument.value)
-    try:
-        result = range(*values)
-        count = len(result)
-    except (ValueError, OverflowError) as exc:
-        raise ScriptValidationError(f"Invalid range(): {exc}") from exc
-    if count > MAX_LOOP_ITERATIONS:
-        raise ScriptValidationError(
-            f"A loop may run at most {MAX_LOOP_ITERATIONS} times."
+    return False
+
+
+def _static_integer(node: ast.AST, values: dict[str, int | None]) -> int | None:
+    """Evaluate a deliberately small integer-expression subset for early limits."""
+    if isinstance(node, ast.Constant) and type(node.value) is int:
+        return node.value
+    if isinstance(node, ast.Name):
+        return values.get(node.id)
+    if isinstance(node, ast.UnaryOp) and isinstance(node.op, (ast.UAdd, ast.USub)):
+        value = _static_integer(node.operand, values)
+        if value is not None:
+            return value if isinstance(node.op, ast.UAdd) else -value
+    if isinstance(node, ast.BinOp):
+        left = _static_integer(node.left, values)
+        right = _static_integer(node.right, values)
+        if left is None or right is None:
+            return None
+        try:
+            if isinstance(node.op, ast.Add):
+                result = left + right
+            elif isinstance(node.op, ast.Sub):
+                result = left - right
+            elif isinstance(node.op, ast.Mult):
+                result = left * right
+            elif isinstance(node.op, ast.FloorDiv):
+                result = left // right
+            elif isinstance(node.op, ast.Mod):
+                result = left % right
+            else:
+                return None
+        except (ArithmeticError, ValueError):
+            return None
+        return result
+    return None
+
+
+def _static_loop_count(node: ast.For, values: dict[str, int | None]) -> int | None:
+    iterable = node.iter
+    if _is_range_call(iterable):
+        assert isinstance(iterable, ast.Call)
+        arguments = [_static_integer(argument, values) for argument in iterable.args]
+        if any(value is None for value in arguments):
+            return None
+        integer_arguments = [int(value) for value in arguments]
+        if any(abs(value) > MAX_RANGE_ARGUMENT for value in integer_arguments):
+            raise ScriptValidationError(
+                f"range() arguments may not exceed {MAX_RANGE_ARGUMENT:,} in magnitude."
+            )
+        try:
+            return len(range(*integer_arguments))
+        except (ValueError, OverflowError) as exc:
+            raise ScriptValidationError(f"Invalid range(): {exc}") from exc
+    if isinstance(iterable, (ast.List, ast.Tuple)):
+        return len(iterable.elts)
+    return None
+
+
+def _collect_static_loop_counts(tree: ast.Module) -> dict[int, int | None]:
+    """Resolve loop sizes when their bounds are statically knowable."""
+    counts: dict[int, int | None] = {}
+
+    def visit_block(
+        statements: list[ast.stmt],
+        values: dict[str, int | None],
+    ) -> dict[str, int | None]:
+        state = dict(values)
+        for statement in statements:
+            if isinstance(statement, ast.Assign):
+                value = _static_integer(statement.value, state)
+                for target in statement.targets:
+                    if isinstance(target, ast.Name):
+                        state[target.id] = value
+            elif isinstance(statement, ast.AugAssign) and isinstance(statement.target, ast.Name):
+                name = statement.target.id
+                left = state.get(name)
+                right = _static_integer(statement.value, state)
+                if left is None or right is None:
+                    state[name] = None
+                else:
+                    try:
+                        if isinstance(statement.op, ast.Add):
+                            state[name] = left + right
+                        elif isinstance(statement.op, ast.Sub):
+                            state[name] = left - right
+                        elif isinstance(statement.op, ast.Mult):
+                            state[name] = left * right
+                        elif isinstance(statement.op, ast.FloorDiv):
+                            state[name] = left // right
+                        elif isinstance(statement.op, ast.Mod):
+                            state[name] = left % right
+                        else:
+                            state[name] = None
+                    except ArithmeticError:
+                        state[name] = None
+            elif isinstance(statement, ast.If):
+                first = visit_block(statement.body, dict(state))
+                second = visit_block(statement.orelse, dict(state)) if statement.orelse else dict(state)
+                merged: dict[str, int | None] = {}
+                for name in first.keys() | second.keys():
+                    left = first.get(name, state.get(name))
+                    right = second.get(name, state.get(name))
+                    merged[name] = left if left == right else None
+                state = merged
+            elif isinstance(statement, ast.For):
+                counts[id(statement)] = _static_loop_count(statement, state)
+                nested = dict(state)
+                if isinstance(statement.target, ast.Name):
+                    nested[statement.target.id] = None
+                visit_block(statement.body, nested)
+        return state
+
+    visit_block(tree.body, {})
+    return counts
+
+
+def _is_bounded_iterable_type(value: object | None) -> bool:
+    if value in {list, tuple, range}:
+        return True
+    return get_origin(value) in {list, tuple, ABCSequence}
+
+
+def _iterable_item_type(
+    node: ast.AST,
+    environment: dict[str, object],
+) -> object | None:
+    value = _infer_expression_type(node, environment)
+    arguments = get_args(value)
+    if arguments:
+        return arguments[0]
+    if isinstance(node, (ast.List, ast.Tuple)) and node.elts:
+        item_types = [_infer_expression_type(item, environment) for item in node.elts]
+        known_types = {item for item in item_types if isinstance(item, type)}
+        if len(known_types) == 1 and all(item is not None for item in item_types):
+            return next(iter(known_types))
+    return None
+
+
+def _bounded_range(*args: int) -> range:
+    """Runtime range() guard used by Blender's script namespace."""
+    if not 1 <= len(args) <= 3:
+        raise TypeError("range() requires one to three integer arguments.")
+    if any(type(value) is not int for value in args):
+        raise TypeError("range() arguments must evaluate to integers (bool is not accepted).")
+    if any(abs(value) > MAX_RANGE_ARGUMENT for value in args):
+        raise ValueError(
+            f"range() arguments may not exceed {MAX_RANGE_ARGUMENT:,} in magnitude."
+        )
+    result = range(*args)
+    if len(result) > MAX_LOOP_ITERATIONS:
+        raise ValueError(
+            f"Each for-loop is limited to {MAX_LOOP_ITERATIONS} iterations; "
+            f"the requested range contains {len(result)}."
         )
     return result
+
+
+def _bounded_loop_iterator(
+    iterable: object,
+    node_cost: int,
+    budget: dict[str, int],
+):
+    """Enforce actual iteration and expanded-AST budgets while a script runs."""
+    if type(iterable) not in {range, list, tuple}:
+        raise TypeError(
+            "for-loops may iterate only over range(), lists, tuples, or "
+            "a scene.find() result."
+        )
+    try:
+        count = len(iterable)
+    except OverflowError as exc:
+        raise ValueError("The loop iterable is too large to evaluate safely.") from exc
+    if count > MAX_LOOP_ITERATIONS:
+        raise ValueError(
+            f"Each for-loop is limited to {MAX_LOOP_ITERATIONS} iterations; "
+            f"the iterable contains {count}."
+        )
+    for item in iterable:
+        budget["iterations"] += 1
+        budget["expansion_cost"] += node_cost
+        if budget["iterations"] > MAX_TOTAL_LOOP_ITERATIONS:
+            raise RuntimeError(
+                f"Scene script exceeded the total loop budget of "
+                f"{MAX_TOTAL_LOOP_ITERATIONS:,} iterations."
+            )
+        if budget["expansion_cost"] > MAX_LOOP_EXPANSION_COST:
+            raise RuntimeError(
+                f"Scene script exceeded the expanded loop-work budget of "
+                f"{MAX_LOOP_EXPANSION_COST:,}."
+            )
+        yield item
 
 
 def _attribute_chain(node: ast.AST) -> tuple[str, tuple[str, ...]] | None:
@@ -241,6 +429,9 @@ def _infer_expression_type(node: ast.AST, environment: dict[str, object]) -> obj
         owner = _infer_expression_type(node.func.value, environment)
         if owner is types.ModuleType:
             callable_object = getattr(math, node.func.attr, None)
+        elif owner is SceneAPI and node.func.attr == "find":
+            has_id = len(node.args) >= 2 or any(keyword.arg == "id" for keyword in node.keywords)
+            return Object3D if has_id else list[Object3D]
         else:
             resolved_owner = _owner_type_for_method(owner if isinstance(owner, type) else None)
             callable_object = getattr(resolved_owner, node.func.attr, None) if resolved_owner else None
@@ -431,9 +622,34 @@ def _validate_dataflow(tree: ast.Module, fail, source: str) -> None:
                 state = merge_branches(state, first, second)
             elif isinstance(statement, ast.For):
                 check_expression(statement.iter, state)
+                iterator_type = _infer_expression_type(statement.iter, state)
+                if _is_range_call(statement.iter):
+                    assert isinstance(statement.iter, ast.Call)
+                    for argument in statement.iter.args:
+                        actual = _infer_expression_type(argument, state)
+                        if actual is not None and actual is not int:
+                            fail(
+                                argument,
+                                "range() arguments must evaluate to integers.",
+                                suggestion="Use integer variables or integer arithmetic in range(start, stop, step).",
+                                code="invalid-range-argument",
+                            )
+                    item_type: object | None = int
+                else:
+                    if not _is_bounded_iterable_type(iterator_type):
+                        fail(
+                            statement.iter,
+                            "A for-loop must iterate over range(), a list, a tuple, or a scene.find() result.",
+                            suggestion=(
+                                "Use range(count), iterate over a list/tuple assigned earlier, "
+                                "or use scene.find(role='...'). The iterable is checked again at runtime."
+                            ),
+                            code="invalid-loop-iterator",
+                        )
+                    item_type = _iterable_item_type(statement.iter, state)
                 loop_state = dict(state)
                 if isinstance(statement.target, ast.Name):
-                    loop_state[statement.target.id] = int
+                    loop_state[statement.target.id] = item_type
                 visit_block(statement.body, loop_state)
                 # A loop can execute zero times; assignments in its body are not definite.
         return state
@@ -489,40 +705,83 @@ def validate_script(source: str) -> ast.Module:
     }
     loops = [node for node in nodes if isinstance(node, ast.For)]
     allowed_range_calls: set[int] = set()
+    loop_counts = _collect_static_loop_counts(tree)
+    loop_costs = {id(loop): len(list(ast.walk(loop))) for loop in loops}
     total_iterations = 0
     expansion_cost = 0
     assigned: set[str] = set()
 
     for loop in loops:
         if loop.orelse:
-            raise ScriptValidationError("Loop else clauses are not supported.")
+            fail(loop, "Loop else clauses are not supported.", code="unsupported-loop-else")
         if not isinstance(loop.target, ast.Name):
-            raise ScriptValidationError("A loop target must be one simple variable name.")
+            fail(loop.target, "A loop target must be one simple variable name.", code="invalid-loop-target")
         target_name = loop.target.id
         if target_name.startswith("_") or target_name in {"studio", "math", "range"}:
-            raise ScriptValidationError(f"Invalid loop variable: {target_name}")
+            fail(loop.target, f"Invalid loop variable: {target_name}", code="invalid-loop-target")
         assigned.add(target_name)
-        iterations = len(_literal_range(loop))
-        allowed_range_calls.add(id(loop.iter))
+
+        if _is_range_call(loop.iter):
+            assert isinstance(loop.iter, ast.Call)
+            if not all(_is_integer_expression(argument) for argument in loop.iter.args):
+                fail(
+                    loop.iter,
+                    "range() accepts one to three integer expressions.",
+                    suggestion="Use integer literals, previously assigned integer variables, or integer arithmetic.",
+                    code="invalid-range-argument",
+                )
+            allowed_range_calls.add(id(loop.iter))
+        elif not isinstance(loop.iter, (ast.Name, ast.List, ast.Tuple, ast.Call)):
+            fail(
+                loop.iter,
+                "A for-loop must use range(), a list, a tuple, or a supported scene API sequence.",
+                code="invalid-loop-iterator",
+            )
+
+        iterations = loop_counts.get(id(loop))
+        if iterations is not None and iterations > MAX_LOOP_ITERATIONS:
+            fail(
+                loop.iter,
+                f"A loop may run at most {MAX_LOOP_ITERATIONS} times; its bound resolves to {iterations}.",
+                suggestion="Reduce the loop count or split the work across separate render jobs.",
+                code="loop-iteration-limit",
+            )
 
         ancestor = parents.get(loop)
         enclosing_iterations = 1
         depth = 1
+        static_chain = iterations is not None
         while ancestor is not None:
             if isinstance(ancestor, ast.For):
                 depth += 1
-                enclosing_iterations *= len(_literal_range(ancestor))
+                ancestor_count = loop_counts.get(id(ancestor))
+                if ancestor_count is None:
+                    static_chain = False
+                else:
+                    enclosing_iterations *= ancestor_count
             ancestor = parents.get(ancestor)
         if depth > MAX_LOOP_DEPTH:
-            raise ScriptValidationError(f"Loop nesting may not exceed {MAX_LOOP_DEPTH} levels.")
-        total_iterations += iterations * enclosing_iterations
-        expansion_cost += iterations * enclosing_iterations * len(list(ast.walk(loop)))
-        if total_iterations > MAX_TOTAL_LOOP_ITERATIONS:
-            raise ScriptValidationError(
-                f"All loops combined may execute at most {MAX_TOTAL_LOOP_ITERATIONS:,} iterations."
+            fail(
+                loop,
+                f"Loop nesting may not exceed {MAX_LOOP_DEPTH} levels.",
+                code="loop-depth-limit",
             )
-        if expansion_cost > MAX_LOOP_EXPANSION_COST:
-            raise ScriptValidationError("The expanded loop body is too large.")
+        if static_chain:
+            total_iterations += iterations * enclosing_iterations
+            expansion_cost += iterations * enclosing_iterations * loop_costs[id(loop)]
+            if total_iterations > MAX_TOTAL_LOOP_ITERATIONS:
+                fail(
+                    loop,
+                    f"All loops combined may execute at most {MAX_TOTAL_LOOP_ITERATIONS:,} iterations.",
+                    code="loop-total-iteration-limit",
+                )
+            if expansion_cost > MAX_LOOP_EXPANSION_COST:
+                fail(
+                    loop,
+                    "The expanded loop body is too large.",
+                    suggestion="Reduce nested loop counts or simplify the repeated body.",
+                    code="loop-expansion-limit",
+                )
 
     for node in nodes:
         if isinstance(node, ast.Assign):
@@ -671,4 +930,18 @@ def validate_script(source: str) -> ast.Module:
                 raise ScriptValidationError("Non-finite numeric literals are not allowed.")
 
     _validate_dataflow(tree, fail, source)
+
+    # Wrap every loop iterator after validation. The injected helper is not
+    # addressable by authored scripts and applies the same runtime budget to
+    # range(), literal sequences, and scene.find() results.
+    for loop in loops:
+        loop.iter = ast.copy_location(
+            ast.Call(
+                func=ast.Name(id="__blentopy_bounded_iter__", ctx=ast.Load()),
+                args=[loop.iter, ast.Constant(value=loop_costs[id(loop)])],
+                keywords=[],
+            ),
+            loop.iter,
+        )
+    ast.fix_missing_locations(tree)
     return tree
