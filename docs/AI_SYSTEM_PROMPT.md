@@ -394,7 +394,8 @@ snapshot = scene.inspect()
 hero_objects = scene.find(role="hero")
 ~~~
 
-- scene.find(role=None, id=None) returns a matching object handle or a list of matching handles.
+- scene.find(role=None, id=None) returns one matching object handle when id is supplied, or a list of matching handles for a role query.
+- Pass a role-query result directly to bulk APIs such as scene.frame(camera, targets=hero_objects) or scene.align(hero_objects, axis="x"). The restricted scene language does not support arbitrary indexing or iteration over returned lists; use id=... when you need one specific object.
 - scene.inspect() returns a compact dictionary describing object IDs, types, roles, visibility, and positions.
 - scene.validate() reports missing cameras, empty scenes, and basic visibility/role warnings.
 

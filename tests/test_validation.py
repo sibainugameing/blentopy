@@ -60,6 +60,19 @@ position_track.key(at=1, value=(0, 0, 1), ease="smooth")
 '''
         validate_script(valid)
 
+    def test_accepts_find_results_as_bulk_api_arguments(self):
+        valid = '''
+scene = studio.scene
+camera = scene.camera(id="camera")
+hero_a = scene.mesh(id="hero.a", geometry=studio.geo.box(), role="hero")
+hero_b = scene.mesh(id="hero.b", geometry=studio.geo.sphere(), role="hero")
+heroes = scene.find(role="hero")
+scene.frame(camera, targets=heroes)
+scene.align(heroes, axis="x", spacing=1.25)
+scene.frame(camera, targets=scene.find(role="hero"))
+'''
+        validate_script(valid)
+
     def test_accepts_direct_studio_scene_motion_track_chain(self):
         valid = '''
 hero = studio.scene.mesh(geometry=studio.geo.box())
