@@ -58,6 +58,10 @@ def build_parser() -> argparse.ArgumentParser:
         "--startup-timeout", type=int, default=120,
         help="Seconds to wait for Blender to save the preview scene (1-600).",
     )
+    sub.add_parser(
+        "gui",
+        help="Open the optional desktop interface (the GUI delegates to the CLI).",
+    )
     return parser
 
 
@@ -128,6 +132,10 @@ def _preview(args: argparse.Namespace) -> int:
 
 def main(argv: list[str] | None = None) -> int:
     args = build_parser().parse_args(argv)
+    if args.command == "gui":
+        from .gui import main as gui_main
+
+        return gui_main()
     if args.command == "doctor":
         try:
             executable = find_blender(args.blender)
