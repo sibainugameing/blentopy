@@ -303,7 +303,7 @@ class Object3D:
 class SceneAPI:
     """AI-facing scene graph and spatial operations."""
 
-    __slots__ = ("_owner", "_objects", "_camera", "_duration", "_fps")
+    __slots__ = ("_owner", "_objects", "_camera", "_duration", "_fps", "_materials")
 
     def __init__(self, owner: AIStudio) -> None:
         self._owner = owner
@@ -311,6 +311,7 @@ class SceneAPI:
         self._camera: Object3D | None = None
         self._duration = 8.0
         self._fps = 30
+        self._materials: dict[tuple[Any, ...], Any] = {}
 
     @property
     def _backend(self):
@@ -349,8 +350,12 @@ class SceneAPI:
             spec = MaterialFactory.pbr()
         if not isinstance(spec, MaterialSpec):
             raise TypeError("material must be created with studio.mat.pbr() or studio.mat.emissive().")
+        key = (spec.model, *spec.values)
+        cached = self._materials.get(key)
+        if cached is not None:
+            return cached
         values = spec.options()
-        return self._backend._material(
+        material = self._backend._material(
             object_id,
             values["color"],
             metallic=values["metallic"],
@@ -359,6 +364,8 @@ class SceneAPI:
             emission_strength=values["emission_strength"],
             coat=values["coat"],
         )
+        self._materials[key] = material
+        return material
 
     def _create_mesh_object(self, object_id: str, geometry: GeometrySpec, material: MaterialSpec | None):
         if not isinstance(geometry, GeometrySpec):
