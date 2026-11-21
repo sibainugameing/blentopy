@@ -13,6 +13,7 @@ blentopy is not an AI model and does not call a hosted AI API. An MCP-capable ch
 - [Installation](#installation)
 - [Updating](#updating)
 - [Checking the Blender installation](#checking-the-blender-installation)
+- [Using the lightweight desktop GUI](#using-the-lightweight-desktop-gui)
 - [Previewing a scene in the Blender GUI](#previewing-a-scene-in-the-blender-gui)
 - [Rendering an MP4](#rendering-an-mp4)
 - [Writing scene scripts](#writing-scene-scripts)
@@ -122,7 +123,7 @@ Check that the command-line interface is available:
 blentopy --help
 ~~~
 
-The help output should list the available commands: **doctor**, **demo**, **render**, and **preview**.
+The help output should list the available commands: **doctor**, **demo**, **render**, **preview**, and **gui**.
 
 If the CLI reports that **preview** is an invalid choice, the shell may be using an old entry point or a different Python environment. Reinstall from the repository root, then inspect the executable and installed package:
 
@@ -163,6 +164,46 @@ $env:BLENTOPY_BLENDER = "C:\Program Files\Blender Foundation\Blender 4.2\blender
 ~~~
 
 Use the actual path for your Blender installation.
+
+## Using the lightweight desktop GUI
+
+The optional desktop GUI is a small front end for people who work with an external AI chat application. It does not contain an AI model, call an AI API, or replace the command-line interface.
+
+### Start the GUI
+
+Run either command from the repository root with the project environment activated:
+
+~~~bash
+blentopy gui
+~~~
+
+Or launch the dedicated entry point:
+
+~~~bash
+blentopy-gui
+~~~
+
+### Typical AI-chat workflow
+
+1. In the GUI, select **Copy AI instructions** and paste the copied authoring rules into your AI chat.
+2. Ask the AI to create or modify a blentopy Python scene script.
+3. Paste the returned Python code into the GUI editor, or open the saved `.py` file.
+4. Save the script, then choose **Preview in Blender** to open an editable Blender project or **Render MP4** to export a video.
+5. Review the CLI output shown in the GUI. Validation errors and render progress come from the same CLI used in a terminal.
+
+The GUI can also create, open, edit, and save scripts; select the Blender executable and workspace; configure resolution, frame rate, duration, and output paths; and run **Check Blender**. It saves the current editor contents before starting a preview or render.
+
+### CUI remains the primary interface
+
+The GUI builds argument lists and starts the existing CLI as a subprocess. It does not call Blender directly or duplicate the runner, validation, locking, or error-reporting code. The following commands remain fully supported and do not require the GUI:
+
+~~~bash
+blentopy doctor
+blentopy preview examples/demo_scene.py
+blentopy render examples/demo_scene.py --output renders/demo.mp4
+~~~
+
+The desktop window requires Tkinter and an available desktop session. If Tkinter is missing or the machine is headless, use the CUI commands above. The AI chat itself remains separate; no API key or chat integration is added by the GUI.
 
 ## Previewing a scene in the Blender GUI
 
