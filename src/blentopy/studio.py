@@ -667,6 +667,20 @@ class Studio:
         start_seconds: float = 0, volume: float = 1,
     ) -> str:
         """Add an existing audio file from inside the workspace to the output VSE."""
+        if not isinstance(name, str) or not name.strip() or len(name) > 96:
+            raise ValueError("Audio name must be a non-empty string of at most 96 characters.")
+        if name in self._audio_strips:
+            raise ValueError(f"An audio strip named '{name}' already exists.")
+        if not isinstance(filepath, str) or not filepath.strip():
+            raise ValueError("filepath must be a non-empty path string.")
+        if type(channel) is not int or not 2 <= channel <= 128:
+            raise ValueError("Audio channel must be an integer between 2 and 128.")
+        start_seconds = self._finite_scalar(start_seconds, "start_seconds")
+        if not 0 <= start_seconds < self._duration:
+            raise ValueError(f"start_seconds must be in [0, {self._duration}).")
+        volume = self._finite_scalar(volume, "volume")
+        if not 0 <= volume <= 1:
+            raise ValueError("Audio volume must be between 0 and 1.")
         candidate = Path(filepath).expanduser()
         if not candidate.is_absolute():
             candidate = self._workspace / candidate
@@ -684,10 +698,10 @@ class Studio:
         if collection is None or not hasattr(collection, "new_sound"):
             raise RuntimeError("This Blender version has no supported VSE sound API.")
         strip = collection.new_sound(
-            name=name, filepath=str(resolved), channel=max(2, int(channel)),
-            frame_start=self.scene.frame_start + round(float(start_seconds) * self._fps),
+            name=name, filepath=str(resolved), channel=channel,
+            frame_start=self.scene.frame_start + round(start_seconds * self._fps),
         )
-        strip.volume = self._clamp(volume, 0, 1)
+        strip.volume = volume
         self._audio_strips[name] = strip
         return name
 
@@ -698,10 +712,24 @@ class Studio:
         strip = self._audio_strips.get(name)
         if strip is None:
             raise ValueError(f"Audio strip not found: {name}")
-        strip.volume = self._clamp(start_volume, 0, 1)
-        strip.keyframe_insert(data_path="volume", frame=int(start_frame))
-        strip.volume = self._clamp(end_volume, 0, 1)
-        strip.keyframe_insert(data_path="volume", frame=int(end_frame))
+        if type(start_frame) is not int or type(end_frame) is not int:
+            raise TypeError("Audio fade frames must be integers.")
+        if (
+            start_frame < self.output_scene.frame_start
+            or end_frame > self.output_scene.frame_end
+            or end_frame <= start_frame
+        ):
+            raise ValueError(
+                "Audio fade frames must satisfy output_scene.frame_start <= start < end <= output_scene.frame_end."
+            )
+        start_value = self._finite_scalar(start_volume, "start_volume")
+        end_value = self._finite_scalar(end_volume, "end_volume")
+        if not 0 <= start_value <= 1 or not 0 <= end_value <= 1:
+            raise ValueError("Audio fade volumes must be between 0 and 1.")
+        strip.volume = start_value
+        strip.keyframe_insert(data_path="volume", frame=start_frame)
+        strip.volume = end_value
+        strip.keyframe_insert(data_path="volume", frame=end_frame)
 
     def render(self) -> tuple[Path, Path]:
         """Save the editable project and render the VSE composition to MP4."""
