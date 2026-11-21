@@ -25,6 +25,22 @@ def safe_name(value: str) -> str:
     return re.sub(r"[^A-Za-z0-9_-]+", "-", value).strip("-_")[:48] or "ai-scene"
 
 
+def load_ai_system_prompt() -> str:
+    """Load the repository's complete scene-authoring guide for MCP clients."""
+    prompt_path = Path(__file__).resolve().parents[2] / "docs" / "AI_SYSTEM_PROMPT.md"
+    try:
+        return prompt_path.read_text(encoding="utf-8").strip()
+    except OSError:
+        return (
+            "Create composed, animated scenes rather than a single rotating primitive. "
+            "Use only documented Studio API calls, a bounded range() loop, and basic "
+            "arithmetic. Plan a visual hook, development, a payoff, camera movement, "
+            "layered composition, coherent materials, and key/fill/rim lighting. "
+            "Never use imports, raw bpy, filesystem access, shell commands, nested loops, "
+            "or conditional statements."
+        )
+
+
 def main() -> None:
     try:
         from mcp.server import MCPServer
@@ -35,9 +51,13 @@ def main() -> None:
     server = MCPServer(
         "blentopy",
         instructions=(
-            "Render Blender scenes from Python using only documented studio methods "
-            "and math helpers. The tools run locally and save MP4 plus editable .blend files. "
-            "Use blentopy_preview_scene when the user wants to inspect the scene in Blender GUI."
+            "You are the scene director and Blender automation agent for blentopy. "
+            "Use the complete authoring guide below as the required scene-generation contract. "
+            "Prefer thoughtful art direction, layered composition, camera movement, detailed geometry, "
+            "purposeful materials, and deliberate lighting over generic primitive turntables. "
+            "Use blentopy_preview_scene only when the user specifically wants to inspect or edit the "
+            "scene in the Blender GUI. Otherwise render with blentopy_render_scene.\n\n"
+            + load_ai_system_prompt()
         ),
     )
 
@@ -53,15 +73,16 @@ def main() -> None:
     @server.tool()
     def blentopy_render_scene(
         python_code: str, name: str = "ai-scene",
-        width: int = 720, height: int = 1280, fps: int = 30,
+        width: int = 1080, height: int = 1920, fps: int = 30,
         duration_seconds: int = 8,
     ) -> str:
         """Run a constrained Studio API scene script and export MP4 + .blend.
 
-        The script receives studio and math. Use documented calls such as
-        studio.add_cube(), studio.add_text(), studio.add_camera(),
-        studio.animate_rotation(), and studio.add_audio(). Imports, raw bpy,
-        filesystem access, shell commands, networking, loops, and functions are rejected.
+        The script receives studio, math, and a bounded range() iterator. Use
+        documented calls such as studio.add_cube(), studio.add_torus(),
+        studio.add_camera(), studio.animate_camera(), and studio.add_audio().
+        Imports, raw bpy, filesystem access, shell commands, networking, nested
+        or unbounded loops, conditionals, and function definitions are rejected.
         """
         try:
             validate_script(python_code)
@@ -94,7 +115,7 @@ def main() -> None:
     @server.tool()
     def blentopy_preview_scene(
         python_code: str, name: str = "ai-preview",
-        width: int = 720, height: int = 1280, fps: int = 30,
+        width: int = 1080, height: int = 1920, fps: int = 30,
         duration_seconds: int = 8,
     ) -> str:
         """Open a scene in the interactive Blender GUI without rendering an MP4.

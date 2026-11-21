@@ -90,7 +90,7 @@ def _resolve_scene_paths(
 def render_script(
     script_path: str | Path, *, output_path: str | Path,
     blend_path: str | Path | None = None, workspace: str | Path | None = None,
-    blender: str | None = None, width: int = 720, height: int = 1280,
+    blender: str | None = None, width: int = 1080, height: int = 1920,
     fps: int = 30, duration_seconds: int = 8, timeout_seconds: int = 3_600,
 ) -> RenderResult:
     validate_render_settings(width, height, fps, duration_seconds)
@@ -159,7 +159,7 @@ def _stop_preview_process(process: subprocess.Popen[str]) -> None:
 def preview_script(
     script_path: str | Path, *, output_path: str | Path,
     blend_path: str | Path | None = None, workspace: str | Path | None = None,
-    blender: str | None = None, width: int = 720, height: int = 1280,
+    blender: str | None = None, width: int = 1080, height: int = 1920,
     fps: int = 30, duration_seconds: int = 8,
     startup_timeout_seconds: int = 120,
 ) -> PreviewResult:

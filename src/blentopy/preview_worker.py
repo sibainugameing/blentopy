@@ -46,14 +46,12 @@ def main() -> int:
             width=width, height=height, fps=fps, duration_seconds=duration,
         )
         code = compile(tree, str(script_path), "exec")
-        namespace = {"studio": studio, "math": math, "__builtins__": {}}
+        namespace = {"studio": studio, "math": math, "range": range, "__builtins__": {}}
         exec(code, namespace, namespace)
 
-        # Keep the editable content scene active in every Blender window.
         for window in bpy.context.window_manager.windows:
             window.scene = studio.scene
 
-        # Open in camera view when the scene defines a camera and show material colors.
         for screen in bpy.data.screens:
             for area in screen.areas:
                 if area.type != "VIEW_3D":
@@ -89,6 +87,4 @@ def main() -> int:
 
 
 if __name__ == "__main__":
-    # Do not raise SystemExit here: Blender treats it as an application exit.
-    # Returning from the script leaves the interactive GUI event loop running.
     main()

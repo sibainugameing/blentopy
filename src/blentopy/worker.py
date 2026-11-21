@@ -33,7 +33,7 @@ def main() -> int:
             width=width, height=height, fps=fps, duration_seconds=duration,
         )
         code = compile(tree, str(script_path), "exec")
-        namespace = {"studio": studio, "math": math, "__builtins__": {}}
+        namespace = {"studio": studio, "math": math, "range": range, "__builtins__": {}}
         exec(code, namespace, namespace)
         rendered, saved_blend = studio.render()
         print(f"BLENTOPY_RENDER_OK={rendered}", flush=True)
