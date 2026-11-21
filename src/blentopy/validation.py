@@ -40,7 +40,7 @@ SCENE_METHODS = frozenset({
 GEOMETRY_METHODS = frozenset({
     "box", "rounded_box", "sphere", "plane", "cylinder", "cone", "torus", "mesh",
 })
-MATERIAL_METHODS = frozenset({"pbr", "emissive"})
+MATERIAL_METHODS = frozenset({"pbr", "emissive", "image_texture", "noise"})
 OBJECT_PROPERTIES = frozenset({
     "id", "kind", "role", "position", "rotation", "scale", "visible",
 })

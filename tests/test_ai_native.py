@@ -108,6 +108,25 @@ class SceneTimebaseTests(unittest.TestCase):
             _color(("1", 0, 1))
 
 
+
+    def test_material_factories_validate_texture_and_procedural_node_settings(self):
+        from blentopy.ai_native import MaterialFactory
+
+        texture = MaterialFactory.image_texture("textures/wood.png", roughness=0.7)
+        self.assertEqual(texture.model, "image_texture")
+        self.assertEqual(texture.options()["filepath"], "textures/wood.png")
+
+        noise = MaterialFactory.noise(scale=12, detail=4, bump_strength=0.3)
+        self.assertEqual(noise.model, "noise")
+        self.assertEqual(noise.options()["scale"], 12.0)
+
+        with self.assertRaisesRegex(ValueError, "non-empty"):
+            MaterialFactory.image_texture("")
+        with self.assertRaisesRegex(ValueError, "Noise scale"):
+            MaterialFactory.noise(scale=0)
+        with self.assertRaisesRegex(ValueError, "bump_strength"):
+            MaterialFactory.noise(bump_strength=2)
+
 class SceneRenderValidationTests(unittest.TestCase):
     @staticmethod
     def make_scene(camera, *, width=1080, height=1920):

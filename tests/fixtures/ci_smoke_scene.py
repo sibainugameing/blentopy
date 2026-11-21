@@ -1,10 +1,14 @@
 scene = studio.scene
 
 geometry = studio.geo.rounded_box(size=(1.6, 1.0, 1.2), bevel=0.06)
-material = studio.mat.pbr(
-    color="#2867C8",
-    roughness=0.34,
-    metallic=0.18,
+material = studio.mat.noise(
+    color_a="#17395F",
+    color_b="#6EA2E8",
+    scale=7,
+    detail=4,
+    roughness=0.38,
+    metallic=0.15,
+    bump_strength=0.12,
 )
 hero = scene.mesh(
     id="ci.hero",

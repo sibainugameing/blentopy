@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import math
 from dataclasses import dataclass
+from pathlib import Path
 from typing import Any, Sequence
 
 from .resource_limits import (
@@ -184,6 +185,61 @@ class GeometryFactory:
 
 class MaterialFactory:
     """Creates reusable material descriptions."""
+
+    @staticmethod
+    def image_texture(
+        filepath: str,
+        roughness: float = 0.55,
+        metallic: float = 0.0,
+        coat: float = 0.0,
+    ) -> MaterialSpec:
+        """Create a workspace-local image-texture material using UV/generated coordinates."""
+        if not isinstance(filepath, str) or not filepath.strip():
+            raise ValueError("filepath must be a non-empty string.")
+        for label, value in (("roughness", roughness), ("metallic", metallic), ("coat", coat)):
+            if type(value) not in {int, float} or not math.isfinite(value) or not 0 <= value <= 1:
+                raise ValueError(f"{label} must be a finite number between 0 and 1.")
+        return MaterialSpec("image_texture", (
+            ("filepath", filepath),
+            ("color", _color("#FFFFFF")),
+            ("roughness", float(roughness)),
+            ("metallic", float(metallic)),
+            ("coat", float(coat)),
+            ("emission", None),
+            ("emission_strength", 0.0),
+        ))
+
+    @staticmethod
+    def noise(
+        color_a: str | Sequence[float] = "#17253D",
+        color_b: str | Sequence[float] = "#D9E3F5",
+        scale: float = 5.0,
+        detail: float = 3.0,
+        roughness: float = 0.55,
+        metallic: float = 0.0,
+        bump_strength: float = 0.15,
+    ) -> MaterialSpec:
+        """Create a procedural Noise Texture -> Color Ramp material with optional bump."""
+        for label, value in (("scale", scale), ("detail", detail)):
+            if type(value) not in {int, float} or not math.isfinite(value):
+                raise ValueError(f"{label} must be a finite number.")
+        if not 0.1 <= scale <= 1000 or not 0 <= detail <= 15:
+            raise ValueError("Noise scale must be in [0.1, 1000] and detail in [0, 15].")
+        for label, value in (("roughness", roughness), ("metallic", metallic), ("bump_strength", bump_strength)):
+            if type(value) not in {int, float} or not math.isfinite(value) or not 0 <= value <= 1:
+                raise ValueError(f"{label} must be a finite number between 0 and 1.")
+        return MaterialSpec("noise", (
+            ("color", _color(color_a)),
+            ("color_b", _color(color_b)),
+            ("roughness", float(roughness)),
+            ("metallic", float(metallic)),
+            ("coat", 0.0),
+            ("emission", None),
+            ("emission_strength", 0.0),
+            ("scale", float(scale)),
+            ("detail", float(detail)),
+            ("bump_strength", float(bump_strength)),
+        ))
 
     @staticmethod
     def pbr(
@@ -430,22 +486,90 @@ class SceneAPI:
     def _material(self, spec: MaterialSpec | None, object_id: str):
         if spec is None:
             spec = MaterialFactory.pbr()
-        if not isinstance(spec, MaterialSpec):
-            raise TypeError("material must be created with studio.mat.pbr() or studio.mat.emissive().")
+        if not isinstance(spec, MaterialSpec) or spec.model not in {
+            "pbr", "emissive", "image_texture", "noise"
+        }:
+            raise TypeError(
+                "material must be created with studio.mat.pbr(), emissive(), "
+                "image_texture(), or noise()."
+            )
         key = (spec.model, *spec.values)
         cached = self._materials.get(key)
         if cached is not None:
             return cached
         values = spec.options()
+
+        texture_path = None
+        if spec.model == "image_texture":
+            workspace = Path(self._backend._workspace).expanduser().resolve()
+            candidate = Path(values["filepath"]).expanduser()
+            candidate = candidate if candidate.is_absolute() else workspace / candidate
+            try:
+                texture_path = candidate.resolve(strict=True)
+                texture_path.relative_to(workspace)
+            except (OSError, ValueError) as exc:
+                raise ValueError(
+                    "Image textures must be existing files inside the blentopy workspace."
+                ) from exc
+            if not texture_path.is_file():
+                raise ValueError("Image texture path must point to a regular file.")
+            if texture_path.suffix.lower() not in {
+                ".png", ".jpg", ".jpeg", ".tif", ".tiff", ".bmp", ".exr", ".hdr", ".webp"
+            }:
+                raise ValueError("Image textures must use PNG, JPEG, TIFF, BMP, EXR, HDR, or WebP.")
+            if texture_path.stat().st_size > 32 * 1024 * 1024:
+                raise ValueError("Image texture files must not exceed 32 MiB.")
+
+        color = values["color"]
         material = self._backend._material(
             object_id,
-            values["color"],
+            color,
             metallic=values["metallic"],
             roughness=values["roughness"],
             emission_color=values["emission"],
             emission_strength=values["emission_strength"],
             coat=values["coat"],
         )
+        bpy = self._backend._bpy
+        nodes = material.node_tree.nodes
+        shader = nodes.get("Principled BSDF")
+        if shader is None:
+            raise RuntimeError("The material has no Principled BSDF node.")
+
+        if texture_path is not None:
+            image = bpy.data.images.load(str(texture_path), check_existing=True)
+            width, height = (int(value) for value in image.size)
+            if width <= 0 or height <= 0 or max(width, height) > 8192:
+                if image.users == 0:
+                    bpy.data.images.remove(image)
+                raise ValueError("Image textures must have dimensions from 1x1 up to 8192x8192.")
+            image.pack()
+            texcoord = nodes.new("ShaderNodeTexCoord")
+            texcoord.label = "Blentopy Generated Coordinates"
+            texture = nodes.new("ShaderNodeTexImage")
+            texture.label = "Blentopy Image Texture"
+            texture.image = image
+            material.node_tree.links.new(texcoord.outputs["Generated"], texture.inputs["Vector"])
+            material.node_tree.links.new(texture.outputs["Color"], shader.inputs["Base Color"])
+
+        if spec.model == "noise":
+            texture = nodes.new("ShaderNodeTexNoise")
+            texture.label = "Blentopy Procedural Noise"
+            texture.inputs["Scale"].default_value = values["scale"]
+            texture.inputs["Detail"].default_value = values["detail"]
+            ramp = nodes.new("ShaderNodeValToRGB")
+            ramp.label = "Blentopy Color Ramp"
+            ramp.color_ramp.elements[0].color = values["color"]
+            ramp.color_ramp.elements[1].color = values["color_b"]
+            material.node_tree.links.new(texture.outputs["Fac"], ramp.inputs["Fac"])
+            material.node_tree.links.new(ramp.outputs["Color"], shader.inputs["Base Color"])
+            if values["bump_strength"] > 0:
+                bump = nodes.new("ShaderNodeBump")
+                bump.label = "Blentopy Procedural Bump"
+                bump.inputs["Strength"].default_value = values["bump_strength"]
+                material.node_tree.links.new(texture.outputs["Fac"], bump.inputs["Height"])
+                material.node_tree.links.new(bump.outputs["Normal"], shader.inputs["Normal"])
+
         self._materials[key] = material
         return material
 

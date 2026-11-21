@@ -4,6 +4,13 @@ from blentopy.validation import ScriptValidationError, validate_script
 
 
 class ModelingLanguageTests(unittest.TestCase):
+    def test_texture_and_node_material_calls_are_allowed(self):
+        validate_script(
+            'texture = studio.mat.image_texture("textures/wood.png")\n'
+            'noise = studio.mat.noise(scale=8, detail=4)\n'
+            'studio.scene.mesh(id="box", geometry=studio.geo.box(), material=noise)\n'
+        )
+
     def test_new_modeling_calls_are_allowed(self):
         validate_script('''
 scene = studio.scene

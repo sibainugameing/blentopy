@@ -547,3 +547,8 @@ For an AI-directed workflow, repair only the reported fault and preserve stable 
 ## 21. Camera, lighting, and render validation
 
 Scene validation checks active camera presence/type/visibility, perspective lens or orthographic scale, near/far clipping, visible renderable geometry, output resolution, resolution percentage, frame rate, frame range, finite object world transforms, and light energy/color. It warns when no visible light is present and attempts to detect a hero object outside the active camera frame. Framing detection is diagnostic, not a guarantee of visual quality; inspect the rendered result for occlusion, exposure, composition, shadows, and material appearance.
+
+
+## 22. Texture-backed and procedural node materials
+
+The material API exposes two bounded node presets: studio.mat.image_texture(filepath, roughness, metallic, coat) and studio.mat.noise(color_a, color_b, scale, detail, roughness, metallic, bump_strength). Image paths are resolved relative to BLENTOPY_WORKSPACE (or the scene-script workspace), must remain inside that workspace, must use a supported image format, and are limited to 32 MiB and 8192 pixels per dimension. Imported images are packed into the .blend file. Textures use Blender Generated coordinates; use UV unwrapping in Blender for precise production texture placement. Procedural noise builds a Noise Texture -> Color Ramp graph with an optional Bump node. Arbitrary user-authored node graphs are not exposed to the constrained script language.
