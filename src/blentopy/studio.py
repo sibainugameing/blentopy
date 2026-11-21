@@ -17,13 +17,14 @@ class Studio:
 
     __slots__ = (
         "_bpy", "_Vector", "_workspace", "_output_path", "_blend_path",
-        "_width", "_height", "_fps", "_audio_strips", "scene",
+        "_width", "_height", "_fps", "_duration", "_audio_strips", "scene",
         "output_scene", "_sequence_editor", "_scene_strip",
     )
 
     def __init__(
         self, *, workspace: str, output_path: str, blend_path: str,
         width: int, height: int, fps: int, duration_seconds: int,
+        existing_project_path: str | Path | None = None,
     ) -> None:
         import bpy
         from mathutils import Vector
@@ -34,11 +35,16 @@ class Studio:
         self._output_path = Path(output_path).expanduser().resolve()
         self._blend_path = Path(blend_path).expanduser().resolve()
         self._width, self._height, self._fps = width, height, fps
+        self._duration = float(duration_seconds)
         self._audio_strips: dict[str, object] = {}
 
         self._workspace.mkdir(parents=True, exist_ok=True)
         self._output_path.parent.mkdir(parents=True, exist_ok=True)
         self._blend_path.parent.mkdir(parents=True, exist_ok=True)
+
+        if existing_project_path is not None:
+            self._load_existing_project(Path(existing_project_path).expanduser().resolve(strict=True))
+            return
 
         bpy.ops.wm.read_factory_settings(use_empty=True)
         self.scene = bpy.context.scene
@@ -67,6 +73,51 @@ class Studio:
         self.set_timeline(duration_seconds, fps)
         self._scene_strip = self._new_scene_strip()
         self.set_world_color((0.025, 0.03, 0.05), strength=0.35)
+
+    def _load_existing_project(self, project_path: Path) -> None:
+        """Load an existing .blend while preserving its editable scene."""
+        if project_path.suffix.lower() != ".blend" or not project_path.is_file():
+            raise ValueError(f"Existing project must be a readable .blend file: {project_path}")
+        self._bpy.ops.wm.open_mainfile(filepath=str(project_path))
+        self.scene = self._bpy.data.scenes.get("Blentopy Content") or self._bpy.context.scene
+        if self.scene is None:
+            raise RuntimeError("The Blender project does not contain an active scene.")
+
+        self.output_scene = self._bpy.data.scenes.get("Blentopy Output")
+        self._width = int(self.scene.render.resolution_x)
+        self._height = int(self.scene.render.resolution_y)
+        self._fps = int(round(self.scene.render.fps / max(self.scene.render.fps_base, 1e-6)))
+        self._fps = max(1, min(60, self._fps))
+        self._duration = max(
+            1.0,
+            (self.scene.frame_end - self.scene.frame_start + 1) / self._fps,
+        )
+
+        if self.output_scene is None:
+            self.output_scene = self._bpy.data.scenes.new("Blentopy Output")
+            self.output_scene.render.engine = self.scene.render.engine
+            self.output_scene.render.resolution_x = self._width
+            self.output_scene.render.resolution_y = self._height
+            self.output_scene.render.resolution_percentage = self.scene.render.resolution_percentage
+            self.output_scene.render.fps = self.scene.render.fps
+            self.output_scene.render.fps_base = self.scene.render.fps_base
+
+        self._sequence_editor = self.output_scene.sequence_editor
+        if self._sequence_editor is None:
+            self._sequence_editor = self.output_scene.sequence_editor_create()
+        strips = getattr(self._sequence_editor, "strips", None)
+        if strips is None:
+            strips = getattr(self._sequence_editor, "sequences", None)
+        self._scene_strip = next(
+            (strip for strip in strips if getattr(strip, "scene", None) == self.scene),
+            None,
+        ) if strips is not None else None
+        if self._scene_strip is None:
+            self._scene_strip = self._new_scene_strip()
+
+        self._audio_strips = {}
+        if self._bpy.context.window is not None:
+            self._bpy.context.window.scene = self.scene
 
     def _choose_render_engine(self) -> str:
         for engine in ("BLENDER_EEVEE_NEXT", "BLENDER_EEVEE", "CYCLES"):

@@ -43,6 +43,14 @@ class PreviewResult:
     process_id: int
 
 
+@dataclass(frozen=True)
+class SceneEditResult:
+    blender_executable: str
+    blend_path: Path
+    snapshot: dict[str, object]
+    log: str
+
+
 class RenderError(RuntimeError):
     def __init__(self, message: str, *, log: str = "") -> None:
         super().__init__(message)
@@ -327,6 +335,123 @@ def _stream_blender_process(
                     f"{type(exc).__name__}: {exc}\\n"
                 )
                 progress_callback = None
+
+
+def _scene_snapshot_from_log(log: str) -> dict[str, object]:
+    prefix = "BLENTOPY_SCENE_SNAPSHOT="
+    for line in log.splitlines():
+        if line.startswith(prefix):
+            try:
+                snapshot = json.loads(line[len(prefix):])
+            except json.JSONDecodeError as exc:
+                raise RenderError(f"Blender returned an invalid scene snapshot: {exc}", log=log) from exc
+            if not isinstance(snapshot, dict):
+                raise RenderError("Blender returned a scene snapshot with an unexpected shape.", log=log)
+            return snapshot
+    raise RenderError("Blender finished without returning a scene snapshot.", log=log)
+
+
+def _existing_project_environment(
+    project: Path,
+    output: Path,
+    workspace: Path,
+    *,
+    mode: str,
+    script: Path | None = None,
+) -> dict[str, str]:
+    env = os.environ.copy()
+    env.update({
+        "BLENTOPY_MODE": mode,
+        "BLENTOPY_INPUT_BLEND": str(project),
+        "BLENTOPY_WORKSPACE": str(workspace),
+        "BLENTOPY_OUTPUT": str(project.with_suffix(".mp4")),
+        "BLENTOPY_BLEND": str(output),
+        "BLENTOPY_WIDTH": "1080",
+        "BLENTOPY_HEIGHT": "1080",
+        "BLENTOPY_FPS": "30",
+        "BLENTOPY_DURATION": "8",
+    })
+    if script is not None:
+        env["BLENTOPY_SCRIPT"] = str(script)
+    else:
+        env.pop("BLENTOPY_SCRIPT", None)
+    return env
+
+
+def inspect_scene(
+    blend_path: str | Path,
+    *,
+    workspace: str | Path | None = None,
+    blender: str | None = None,
+    timeout_seconds: int = 120,
+) -> dict[str, object]:
+    """Inspect an existing .blend project without saving or modifying it."""
+    if not isinstance(timeout_seconds, int) or timeout_seconds < 1:
+        raise ValueError("timeout_seconds must be a positive integer.")
+    project = Path(blend_path).expanduser().resolve(strict=True)
+    if not project.is_file() or project.suffix.lower() != ".blend":
+        raise ValueError(f"blend_path must point to an existing .blend file: {project}")
+    workspace_dir = Path(workspace or project.parent).expanduser().resolve()
+    workspace_dir.mkdir(parents=True, exist_ok=True)
+    executable = find_blender(blender)
+    worker = Path(__file__).with_name("edit_worker.py").resolve()
+    if not worker.is_file():
+        raise RenderError("The installed blentopy package is missing edit_worker.py. Reinstall blentopy.")
+
+    env = _existing_project_environment(project, project, workspace_dir, mode="inspect")
+    command = [executable, "--background", "--python-exit-code", "1", "--python", str(worker)]
+    return_code, log = _stream_blender_process(
+        command, env=env, timeout_seconds=timeout_seconds, progress_callback=None,
+    )
+    if return_code != 0:
+        raise RenderError(f"Blender scene inspection failed with exit code {return_code}.", log=log)
+    return _scene_snapshot_from_log(log)
+
+
+def edit_scene_script(
+    script_path: str | Path,
+    blend_path: str | Path,
+    *,
+    workspace: str | Path | None = None,
+    blender: str | None = None,
+    timeout_seconds: int = 600,
+) -> SceneEditResult:
+    """Apply a validated script to an existing .blend and atomically replace it."""
+    if not isinstance(timeout_seconds, int) or timeout_seconds < 1:
+        raise ValueError("timeout_seconds must be a positive integer.")
+    source = Path(script_path).expanduser().resolve(strict=True)
+    if not source.is_file():
+        raise FileNotFoundError(f"Edit script is not a regular file: {source}")
+    validate_script(source.read_text(encoding="utf-8"))
+
+    project = Path(blend_path).expanduser().resolve(strict=True)
+    if not project.is_file() or project.suffix.lower() != ".blend":
+        raise ValueError(f"blend_path must point to an existing .blend file: {project}")
+    workspace_dir = Path(workspace or source.parent).expanduser().resolve()
+    workspace_dir.mkdir(parents=True, exist_ok=True)
+    executable = find_blender(blender)
+    worker = Path(__file__).with_name("edit_worker.py").resolve()
+    if not worker.is_file():
+        raise RenderError("The installed blentopy package is missing edit_worker.py. Reinstall blentopy.")
+
+    token = uuid.uuid4().hex
+    staged_blend = project.with_name(f".{project.stem}.{token}.edited.blend")
+    env = _existing_project_environment(project, staged_blend, workspace_dir, mode="edit", script=source)
+    command = [executable, "--background", "--python-exit-code", "1", "--python", str(worker)]
+    try:
+        return_code, log = _stream_blender_process(
+            command, env=env, timeout_seconds=timeout_seconds, progress_callback=None,
+        )
+        if return_code != 0:
+            raise RenderError(f"Blender scene edit failed with exit code {return_code}.", log=log)
+        snapshot = _scene_snapshot_from_log(log)
+        if not staged_blend.is_file() or staged_blend.stat().st_size == 0:
+            raise RenderError(f"Blender did not create a valid edited project: {staged_blend}", log=log)
+        os.replace(staged_blend, project)
+        return SceneEditResult(executable, project, snapshot, log)
+    finally:
+        staged_blend.unlink(missing_ok=True)
+
 
 def render_script(
     script_path: str | Path, *, output_path: str | Path,

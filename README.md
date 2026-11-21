@@ -36,6 +36,8 @@ blentopy is not an AI model and does not call a hosted AI API. An MCP-capable ch
 - Configure metallic, rough, coated, and emissive materials; cameras with depth of field; area and sun lights.
 - Build repeated scene details with bounded loops and arithmetic.
 - Use an AI-native scene graph with reusable geometry/material specs, object handles, groups, semantic placement, camera framing, custom meshes, and second-based animation tracks.
+- Create editable curves and 3D text, duplicate objects, and use bevel, subdivision, solidify, mirror, array, and Boolean modifiers.
+- Inspect and incrementally edit an existing .blend across AI turns without rebuilding the full scene.
 - Animate object transforms and camera moves with selectable interpolation.
 - Add existing audio files to the Video Sequence Editor (VSE).
 - Render an MP4 video using H.264 video and AAC audio.
@@ -49,7 +51,7 @@ blentopy is not an AI model and does not call a hosted AI API. An MCP-capable ch
 - Generating narration, sound effects, or music.
 - Free-form image understanding and image-to-model generation.
 - Automatic AI diagnosis, repair, and retry after a scene-generation error.
-- Continuous real-time AI manipulation of objects in an already-open Blender session. The current workflow executes a scene script as a unit.
+- Live synchronization with an already-open Blender GUI. AI edits update the saved .blend using a background Blender process; reload the project in the GUI to see the changes.
 
 ## Requirements
 
@@ -360,9 +362,47 @@ rise.key(at=2, value=(0, 0, 3), ease="smooth")
 
 The first implementation includes reusable geometry/material specifications, mesh and group handles, transforms, parent-child relationships, semantic placement/alignment, camera framing, four light types, second-based transform tracks, custom meshes, and basic scene inspection. Incidental repeated objects can omit IDs and receive deterministic per-run identifiers, avoiding generated string counters inside loops.
 
-The API is deliberately layered: use scene-level intent helpers for ordinary composition, Object3D handles for precise edits, and custom geometry only when the built-in shapes are insufficient. Use scene.update(target, ...) and scene.set_material(target, material) for targeted edits within the current script. Each separate render or preview invocation still starts a fresh scene; loading a previous .blend and applying diffs across separate AI turns is not implemented yet. This is not a complete physics solver or a replacement for all Blender modeling tools.
+The API is deliberately layered: use scene-level intent helpers for ordinary composition, Object3D handles for precise edits, and custom geometry only when built-in shapes are insufficient. Normal render and preview calls create a fresh scene. For follow-up work, use the MCP `blentopy_inspect_scene` and `blentopy_edit_scene` tools to load a saved .blend, target existing objects by ID, and apply only the requested changes. The edit is saved atomically to the same .blend path. A Blender GUI that already has the file open must reload it to display the disk changes.
 
 See [docs/AI_SYSTEM_PROMPT.md](docs/AI_SYSTEM_PROMPT.md) for the authoritative API reference and scripting contract.
+
+## Iterative editing of an existing scene
+
+AI can continue working on a saved project instead of regenerating the whole scene.
+
+1. Create the first project with `blentopy_preview_scene` or `blentopy_render_scene`. Keep the returned .blend path.
+2. Call `blentopy_inspect_scene(blend_path)` to receive stable object IDs, types, world transforms, dimensions, parent information, modifiers, materials, and active camera.
+3. Call `blentopy_edit_scene(blend_path, python_code=...)` with a small script that targets only the objects that need to change.
+4. The updated .blend is saved atomically at the same path. If that project is already open in Blender, reload it in the GUI to display the changes.
+
+Example edit script:
+
+```python
+scene = studio.scene
+hero = scene.find(id="subject.hero")
+scene.update(hero, position=(0.5, 0, 1.2), scale=(1.1, 1.1, 1.1))
+scene.bevel(hero, width=0.04, segments=4)
+```
+
+The MCP editing tools accept only .blend projects inside the configured `BLENTOPY_WORKSPACE`. Edit scripts use the same restricted scene language as normal scene generation; raw `bpy` and general Python execution remain unavailable.
+
+## Expanded modeling API
+
+| Method | Purpose |
+|---|---|
+| `scene.curve(...)` | Editable 3D polyline or Bezier curve for cables, pipes, paths, and trim |
+| `scene.text(...)` | Editable 3D text |
+| `scene.duplicate(...)` | Copy an object and its data with a world-space offset |
+| `scene.set_dimensions(...)` | Set world-space object dimensions |
+| `scene.bevel(...)` | Non-destructive edge bevel |
+| `scene.subdivide(...)` | Catmull–Clark subdivision |
+| `scene.solidify(...)` | Add mesh thickness |
+| `scene.mirror(...)` | Mirror modifier |
+| `scene.array(...)` | Constant-offset array modifier |
+| `scene.boolean(...)` | Non-destructive Boolean operation |
+| `scene.shade_smooth(...)` | Smooth mesh polygon shading |
+
+All modifier operations remain editable in Blender. Keep stable IDs and inspect the resulting project after meaningful edits.
 
 ## Legacy Studio API reference
 
@@ -644,6 +684,8 @@ At startup, the MCP server loads the bundled **AI_SYSTEM_PROMPT.md** resource an
 | **blentopy_environment** | Detects Blender and reports its version, executable path, and workspace. |
 | **blentopy_preview_scene** | Opens Blender GUI, runs a scene script, saves a .blend project, and leaves Blender open. Does not render an MP4. |
 | **blentopy_render_scene** | Runs a scene script and exports an MP4 and .blend project. Sends MCP progress notifications for scene setup, validation, saving, and rendered frames when the client requests progress. |
+| **blentopy_inspect_scene** | Reads an existing .blend and returns object IDs, transforms, dimensions, modifiers, materials, and active camera. |
+| **blentopy_edit_scene** | Applies targeted changes to an existing .blend and saves the updated project atomically. |
 | **blentopy_list_outputs** | Lists recent files in the workspace's renders directory. |
 
 The render and preview tools accept Python source code as a string. The scene language provides **studio**, **math**, and bounded **range()** loops; the MCP server validates scripts with the same restrictions as the CLI. Default output is 1080×1920 at 30 FPS for 8 seconds.
@@ -655,6 +697,8 @@ Once the MCP server is connected, you can ask the chat client to:
 - "Run a Blender GUI preview so I can inspect the scene."
 - "Create an eight-second scene with a blue sphere moving up and down."
 - "Move the camera back slightly so the entire object is visible."
+- "Inspect the saved project and tell me the IDs of the main objects."
+- "Edit the existing product body and add a cable without rebuilding the scene."
 - "Preview the scene and leave the generated Blender project open."
 - "Render this scene to an MP4."
 
@@ -825,12 +869,12 @@ The validator rejects imports, raw bpy access, private/dunder attributes, arbitr
 
 ## Current limitations
 
-- The AI-native API supports geometry/material specs, Object3D handles, groups, custom meshes, spatial helpers, camera/light creation, second-based transform tracks, and targeted in-script edits. Sculpting, rigging, and complex character animation are not implemented.
+- The AI-native API supports geometry/material specs, Object3D handles, groups, custom meshes, curves, text, non-destructive modeling modifiers, spatial helpers, camera/light creation, second-based transform tracks, and incremental edits to existing .blend projects. Sculpting, rigging, and complex character animation are not implemented.
 - No AI model is bundled with blentopy.
 - Text-to-speech, music generation, and image generation require separate tools.
 - Advanced modeling, rigging, and character workflows are not implemented.
 - Automatic AI retries and error repair are not implemented.
-- Persistent incremental editing across separate render/preview invocations is not implemented; each invocation starts from a fresh scene.
+- The saved-project edit workflow is not a live link to an already-open Blender GUI; reload the project to see changes made by the background edit process.
 - Blender's VSE API can differ between Blender versions and requires compatibility testing.
 - GUI preview and rendering still need to be verified on the target machine and Blender installation.
 

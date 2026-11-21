@@ -467,3 +467,58 @@ Available constants: math.pi, math.tau, math.e.
 Available functions: math.sin(x), math.cos(x), math.tan(x), math.radians(x), math.degrees(x), math.sqrt(x).
 
 Trigonometric functions use radians. New API rotation values and animation rotation keys also use radians. The legacy studio.animate_rotation() API continues to accept degrees.
+
+## 16. Iterative editing of existing Blender projects
+
+A scene does not need to be rebuilt after every user instruction. For follow-up requests involving a saved project:
+
+1. Call `blentopy_inspect_scene(blend_path)` using the .blend path returned by the previous render or preview. Read the stable object IDs, transforms, dimensions, hierarchy, modifiers, materials, and active camera.
+2. Write a small edit script that changes only the requested parts. Use `scene.find(id="...")` to get an existing object handle, then call `scene.update()`, `scene.set_material()`, `scene.set_dimensions()`, `scene.duplicate()`, `scene.remove()`, or the modeling operations below.
+3. Call `blentopy_edit_scene(blend_path, python_code=...)`. This opens the existing .blend, applies the script, inspects the updated scene, and atomically saves the changed project at the same path.
+4. Do not reconstruct the whole scene unless the user explicitly requests a rebuild. Preserve existing IDs and unrelated objects.
+
+Objects created by blentopy retain their `blentopy_id` and `blentopy_role` custom properties. For ordinary Blender files without these properties, inspection assigns IDs such as `existing.Cube`; use the exact ID from the latest inspection. Each edit call creates new handles, so resolve objects again with `scene.find()` on every call.
+
+The background edit process updates the saved .blend on disk. A Blender GUI that already has the same project open does not automatically refresh; reload or reopen the file before judging the change. Never claim the visible GUI is updated unless verified.
+
+## 17. Expanded modeling API
+
+Use these operations when primitives alone cannot produce a recognizable shape. They create normal editable Blender objects and non-destructive modifiers.
+
+### Curves and text
+
+- `scene.curve(id=None, points=(), material=None, bevel_depth=0.025, cyclic=False, spline="poly", resolution=12, role=None)`: create a 3D polyline or auto-handle Bezier curve. Supply 2–4096 XYZ points. Use for cables, pipes, trim, wires, outlines, and organic paths. `spline` is `"poly"` or `"bezier"`.
+- `scene.text(id=None, body="Text", size=1, extrude=0, align="center", material=None, position=(0,0,0), rotation=(0,0,0), role=None)`: create editable 3D text. Rotation uses radians. Alignment is `left`, `center`, or `right`.
+
+### Object editing and geometry operations
+
+- `scene.duplicate(target, id=None, offset=(1,0,0), role=None)`: duplicate an existing object and its object data with a world-space offset.
+- `scene.set_dimensions(target, dimensions)`: set world-space dimensions in Blender units.
+- `scene.bevel(target, width=0.05, segments=3)`: add a Bevel modifier.
+- `scene.subdivide(target, levels=2, render_levels=None)`: add a Catmull–Clark Subdivision modifier.
+- `scene.solidify(target, thickness=0.05, offset=-1)`: add thickness to a mesh surface.
+- `scene.mirror(target, axis="x", merge=True, bisect=False)`: add a Mirror modifier on one axis.
+- `scene.array(target, count=2, offset=(1,0,0))`: add an Array modifier with a constant local offset.
+- `scene.boolean(target, operand, operation="DIFFERENCE")`: add a non-destructive Boolean modifier. Operations: `DIFFERENCE`, `UNION`, `INTERSECT`.
+- `scene.shade_smooth(target)`: enable smooth shading for mesh polygons.
+
+Modifiers remain editable in Blender. Prefer small, deliberate modifier stacks. For Boolean cuts, keep the cutter object identifiable; hide it only after checking that the result is correct.
+
+### Example: edit an existing product model
+
+```python
+scene = studio.scene
+body = scene.find(id="product.body")
+scene.update(body, position=(0, 0, 1.2), scale=(1.1, 1.0, 1.0))
+scene.bevel(body, width=0.035, segments=4)
+
+cable = scene.curve(
+    id="product.power_cable",
+    points=((0.4, 0, 1.0), (0.8, 0, 0.7), (1.0, 0.2, 0.2)),
+    bevel_depth=0.025,
+    spline="bezier",
+    material=studio.mat.pbr(color="#20242D", roughness=0.6),
+)
+```
+
+The restricted Python contract remains in force: no imports, raw `bpy`, filesystem/process/network access, or undocumented methods. This expands modeling capability without granting generated scripts general access to the user's computer.

@@ -1,6 +1,7 @@
 """Local stdio MCP server for MCP-capable chat applications."""
 
 import asyncio
+import json
 import os
 import re
 import sys
@@ -10,8 +11,8 @@ from pathlib import Path
 
 from .discovery import BlenderNotFoundError, blender_version, find_blender
 from .runner import (
-    RenderError, RenderProgress, format_error_report, preview_script,
-    render_script, validate_render_settings,
+    RenderError, RenderProgress, edit_scene_script, inspect_scene,
+    format_error_report, preview_script, render_script, validate_render_settings,
 )
 from .validation import ScriptValidationError, validate_script
 
@@ -100,7 +101,9 @@ def main() -> None:
             "Prefer thoughtful art direction, layered composition, camera movement, detailed geometry, "
             "purposeful materials, and deliberate lighting over generic primitive turntables. "
             "Use blentopy_preview_scene only when the user specifically wants to inspect or edit the "
-            "scene in the Blender GUI. Otherwise render with blentopy_render_scene.\n\n"
+            "scene in the Blender GUI. For follow-up changes to a saved project, call "
+            "blentopy_inspect_scene first and then blentopy_edit_scene; preserve unrelated geometry. "
+            "Otherwise render with blentopy_render_scene.\n\n"
             + load_ai_system_prompt()
         ),
     )
@@ -208,6 +211,61 @@ def main() -> None:
             )
         except (ScriptValidationError, ValueError, OSError, BlenderNotFoundError, RenderError) as exc:
             return "Preview failed:\n" + format_error_report(exc, script_path=script)
+
+    @server.tool()
+    async def blentopy_inspect_scene(blend_path: str) -> str:
+        """Inspect an existing .blend and report object IDs, transforms, dimensions, modifiers and materials.
+
+        Call this before making follow-up edits so the AI can target existing objects.
+        The project must be inside BLENTOPY_WORKSPACE.
+        """
+        try:
+            workspace = workspace_path()
+            project = Path(blend_path).expanduser().resolve(strict=True)
+            if project.suffix.lower() != ".blend" or not project.is_relative_to(workspace):
+                raise ValueError(f"The .blend file must be inside BLENTOPY_WORKSPACE ({workspace}).")
+            snapshot = await asyncio.to_thread(inspect_scene, project, workspace=workspace)
+            return json.dumps(snapshot, ensure_ascii=False, indent=2)
+        except (ValueError, OSError, BlenderNotFoundError, RenderError) as exc:
+            return "Scene inspection failed:\n" + format_error_report(exc)
+
+    @server.tool()
+    async def blentopy_edit_scene(
+        blend_path: str,
+        python_code: str,
+        name: str = "ai-edit",
+    ) -> str:
+        """Apply targeted edits to an existing .blend without reconstructing its scene.
+
+        Inspect first, then use scene.find(id=...), scene.update(), scene.set_material(),
+        scene.duplicate(), scene.remove(), and the documented modeling API.
+        The edit is saved atomically. Reload the .blend in any already-open Blender GUI.
+        """
+        script: Path | None = None
+        try:
+            validate_script(python_code)
+            workspace = workspace_path()
+            project = Path(blend_path).expanduser().resolve(strict=True)
+            if project.suffix.lower() != ".blend" or not project.is_relative_to(workspace):
+                raise ValueError(f"The .blend file must be inside BLENTOPY_WORKSPACE ({workspace}).")
+            scripts = workspace / "scripts"
+            scripts.mkdir(parents=True, exist_ok=True)
+            stamp = datetime.now().strftime("%Y%m%d-%H%M%S-%f")
+            script = scripts / f"{safe_name(name)}-{stamp}.py"
+            script.write_text(python_code.rstrip() + "\n", encoding="utf-8")
+            result = await asyncio.to_thread(
+                edit_scene_script, script, project, workspace=workspace,
+            )
+            return (
+                f"Scene edit completed and saved: {result.blend_path}\n"
+                "Only the requested changes were applied to the existing scene.\n"
+                "Reload the .blend in an already-open Blender GUI to see the saved changes.\n"
+                "Updated scene snapshot:\n"
+                + json.dumps(result.snapshot, ensure_ascii=False, indent=2)
+                + f"\nEdit script: {script}"
+            )
+        except (ScriptValidationError, ValueError, OSError, BlenderNotFoundError, RenderError) as exc:
+            return "Scene edit failed:\n" + format_error_report(exc, script_path=script)
 
     @server.tool()
     def blentopy_list_outputs() -> str:
