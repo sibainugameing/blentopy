@@ -511,6 +511,31 @@ class SceneAPI:
         child._object.parent = to._object
         child._object.matrix_world = world_matrix
 
+    def _world_bounds(self, target: Object3D) -> tuple[tuple[float, float, float], tuple[float, float, float]]:
+        candidates = [target]
+        if target.kind == "group":
+            descendants: list[Object3D] = []
+            for candidate in self._objects.values():
+                parent = candidate._object.parent
+                while parent is not None:
+                    if parent == target._object:
+                        if candidate.kind == "mesh":
+                            descendants.append(candidate)
+                        break
+                    parent = parent.parent
+            if descendants:
+                candidates = descendants
+        lows = []
+        highs = []
+        for candidate in candidates:
+            center = candidate._object.matrix_world.translation
+            dimensions = candidate._object.dimensions
+            lows.append(tuple(float(center[axis]) - float(dimensions[axis]) / 2 for axis in range(3)))
+            highs.append(tuple(float(center[axis]) + float(dimensions[axis]) / 2 for axis in range(3)))
+        low = tuple(min(bounds[axis] for bounds in lows) for axis in range(3))
+        high = tuple(max(bounds[axis] for bounds in highs) for axis in range(3))
+        return low, high
+
     def place(
         self,
         obj: Object3D,
@@ -521,30 +546,36 @@ class SceneAPI:
         self._require_object(obj)
         delta = _vector3(offset, "offset")
         self._backend._bpy.context.view_layer.update()
+        obj_low, obj_high = self._world_bounds(obj)
+        obj_center = tuple((obj_low[index] + obj_high[index]) / 2 for index in range(3))
+        obj_size = tuple(obj_high[index] - obj_low[index] for index in range(3))
         if on is None:
             base = (0.0, 0.0, 0.0)
             support = (0.0, 0.0, 0.0)
         else:
             self._require_object(on)
-            base = tuple(float(part) for part in on._object.location)
-            support = tuple(float(part) for part in on._object.dimensions)
-        size = tuple(float(part) for part in obj._object.dimensions)
+            support_low, support_high = self._world_bounds(on)
+            base = tuple((support_low[index] + support_high[index]) / 2 for index in range(3))
+            support = tuple(support_high[index] - support_low[index] for index in range(3))
         result = list(base)
         if anchor == "top":
-            result[2] += (support[2] + size[2]) * 0.5
+            result[2] += (support[2] + obj_size[2]) * 0.5
         elif anchor == "bottom":
-            result[2] -= (support[2] + size[2]) * 0.5
+            result[2] -= (support[2] + obj_size[2]) * 0.5
         elif anchor == "left":
-            result[0] -= (support[0] + size[0]) * 0.5
+            result[0] -= (support[0] + obj_size[0]) * 0.5
         elif anchor == "right":
-            result[0] += (support[0] + size[0]) * 0.5
+            result[0] += (support[0] + obj_size[0]) * 0.5
         elif anchor == "front":
-            result[1] -= (support[1] + size[1]) * 0.5
+            result[1] -= (support[1] + obj_size[1]) * 0.5
         elif anchor == "back":
-            result[1] += (support[1] + size[1]) * 0.5
+            result[1] += (support[1] + obj_size[1]) * 0.5
         elif anchor != "center":
             raise ValueError("anchor must be center, top, bottom, left, right, front, or back.")
-        obj.position.set(tuple(result[index] + delta[index] for index in range(3)))
+        target_center = tuple(result[index] + delta[index] for index in range(3))
+        world_matrix = obj._object.matrix_world.copy()
+        world_matrix.translation += self._backend._Vector(tuple(target_center[index] - obj_center[index] for index in range(3)))
+        obj._object.matrix_world = world_matrix
 
     def look_at(self, camera: Object3D, target: Object3D | Sequence[float]) -> None:
         self._require_object(camera)
@@ -552,7 +583,7 @@ class SceneAPI:
             raise ValueError("look_at expects a camera object.")
         if isinstance(target, Object3D):
             self._require_object(target)
-            point = target._object.location
+            point = target._object.matrix_world.translation
         else:
             point = _vector3(target, "target")
         camera._object.rotation_euler = self._backend._camera_rotation(camera._object.location, point)
@@ -574,8 +605,9 @@ class SceneAPI:
         if not math.isfinite(margin) or margin < 1:
             raise ValueError("margin must be finite and at least 1.")
         self._backend._bpy.context.view_layer.update()
-        lows = [min(float(item._object.location[axis]) - float(item._object.dimensions[axis]) / 2 for item in objects) for axis in range(3)]
-        highs = [max(float(item._object.location[axis]) + float(item._object.dimensions[axis]) / 2 for item in objects) for axis in range(3)]
+        bounds = [self._world_bounds(item) for item in objects]
+        lows = [min(bound[0][axis] for bound in bounds) for axis in range(3)]
+        highs = [max(bound[1][axis] for bound in bounds) for axis in range(3)]
         center = tuple((lows[axis] + highs[axis]) / 2 for axis in range(3))
         extent = tuple(max(0.1, highs[axis] - lows[axis]) for axis in range(3))
         direction = self._backend._Vector(camera._object.location) - self._backend._Vector(center)
@@ -677,7 +709,7 @@ class SceneAPI:
         light_obj.location = _vector3(position, "position")
         result = self._register(object_id, light_obj, "light", "lighting")
         if isinstance(target, Object3D):
-            target_point = target._object.location
+            target_point = target._object.matrix_world.translation
         else:
             target_point = _vector3(target, "target")
         direction = self._backend._Vector(target_point) - self._backend._Vector(light_obj.location)
@@ -703,7 +735,7 @@ class SceneAPI:
                     "id": item.id,
                     "kind": item.kind,
                     "role": item.role,
-                    "position": item.position._read(),
+                    "position": tuple(float(part) for part in item._object.matrix_world.translation),
                     "visible": item.visible,
                 }
                 for item in self._objects.values()
