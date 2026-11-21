@@ -743,9 +743,10 @@ class Studio:
         candidate = Path(filepath).expanduser()
         if not candidate.is_absolute():
             candidate = self._workspace / candidate
+        workspace = Path(self._workspace).expanduser().resolve()
         resolved = candidate.resolve(strict=True)
         try:
-            resolved.relative_to(self._workspace)
+            resolved.relative_to(workspace)
         except ValueError as exc:
             raise ValueError("Audio files must be inside the blentopy workspace.") from exc
         if not resolved.is_file():
