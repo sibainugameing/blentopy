@@ -9,7 +9,7 @@ from datetime import datetime
 from pathlib import Path
 
 from .discovery import BlenderNotFoundError, blender_version, find_blender
-from .runner import RenderError, render_script, validate_render_settings
+from .runner import RenderError, preview_script, render_script, validate_render_settings
 from .validation import ScriptValidationError, validate_script
 
 
@@ -36,7 +36,8 @@ def main() -> None:
         "blentopy",
         instructions=(
             "Render Blender scenes from Python using only documented studio methods "
-            "and math helpers. The tools run locally and save MP4 plus editable .blend files."
+            "and math helpers. The tools run locally and save MP4 plus editable .blend files. "
+            "Use blentopy_preview_scene when the user wants to inspect the scene in Blender GUI."
         ),
     )
 
@@ -55,7 +56,7 @@ def main() -> None:
         width: int = 720, height: int = 1280, fps: int = 30,
         duration_seconds: int = 8,
     ) -> str:
-        """Run a constrained Studio API Python scene script and export MP4 + .blend.
+        """Run a constrained Studio API scene script and export MP4 + .blend.
 
         The script receives studio and math. Use documented calls such as
         studio.add_cube(), studio.add_text(), studio.add_camera(),
@@ -89,6 +90,43 @@ def main() -> None:
         except (ScriptValidationError, ValueError, OSError, BlenderNotFoundError, RenderError) as exc:
             detail = getattr(exc, "log", "")
             return f"Render failed: {exc}" + (f"\nBlender log:\n{detail[-8000:]}" if detail else "")
+
+    @server.tool()
+    def blentopy_preview_scene(
+        python_code: str, name: str = "ai-preview",
+        width: int = 720, height: int = 1280, fps: int = 30,
+        duration_seconds: int = 8,
+    ) -> str:
+        """Open a scene in the interactive Blender GUI without rendering an MP4.
+
+        Use this when the user wants to watch the scene being built or inspect/edit
+        the result in Blender. Blender remains open after the scene is saved.
+        """
+        try:
+            validate_script(python_code)
+            validate_render_settings(width, height, fps, duration_seconds)
+            workspace = workspace_path()
+            scripts, renders = workspace / "scripts", workspace / "renders"
+            scripts.mkdir(parents=True, exist_ok=True)
+            renders.mkdir(parents=True, exist_ok=True)
+            slug = safe_name(name)
+            stamp = datetime.now().strftime("%Y%m%d-%H%M%S-%f")
+            script = scripts / f"{slug}-{stamp}.py"
+            video = renders / f"{slug}-{stamp}.mp4"
+            blend = renders / f"{slug}-{stamp}.blend"
+            script.write_text(python_code.rstrip() + "\n", encoding="utf-8")
+
+            executable, blend_path = preview_script(
+                script, output_path=video, blend_path=blend, workspace=workspace,
+                width=width, height=height, fps=fps, duration_seconds=duration_seconds,
+            )
+            return (
+                f"Interactive Blender GUI launched: {executable}\n"
+                f"Editable scene will be saved at: {blend_path}\n"
+                "No MP4 render was started. Blender remains open for inspection and editing."
+            )
+        except (ScriptValidationError, ValueError, OSError, BlenderNotFoundError, RenderError) as exc:
+            return f"Preview failed: {exc}"
 
     @server.tool()
     def blentopy_list_outputs() -> str:

@@ -8,7 +8,7 @@ import sys
 from pathlib import Path
 
 from .discovery import BlenderNotFoundError, blender_version, find_blender
-from .runner import RenderError, render_script
+from .runner import RenderError, preview_script, render_script
 
 DEFAULT_EXAMPLE = Path(__file__).with_name("demo_scene.py")
 
@@ -37,6 +37,11 @@ def build_parser() -> argparse.ArgumentParser:
     render = sub.add_parser("render", help="Render a Python scene script.")
     render.add_argument("script", type=Path)
     add_render_options(render)
+    preview = sub.add_parser(
+        "preview", help="Open the scene in the interactive Blender GUI without rendering a video."
+    )
+    preview.add_argument("script", type=Path)
+    add_render_options(preview)
     return parser
 
 
@@ -64,6 +69,25 @@ def _render(args: argparse.Namespace, script: Path) -> int:
     return 0
 
 
+def _preview(args: argparse.Namespace) -> int:
+    output = Path(args.output) if args.output else Path("renders") / f"{args.script.stem}.mp4"
+    blend = Path(args.blend_output) if args.blend_output else output.with_suffix(".blend")
+    workspace = Path(args.workspace) if args.workspace else Path("blentopy-workspace")
+    try:
+        executable, blend_path = preview_script(
+            args.script, output_path=output, blend_path=blend, workspace=workspace,
+            blender=args.blender, width=args.width, height=args.height,
+            fps=args.fps, duration_seconds=args.duration,
+        )
+    except (ValueError, FileNotFoundError, BlenderNotFoundError, RenderError) as exc:
+        print(f"Error: {exc}", file=sys.stderr)
+        return 1
+    print(f"Started Blender GUI: {executable}")
+    print(f"Scene will be saved to: {blend_path}")
+    print("The GUI remains open. Close Blender normally when finished.")
+    return 0
+
+
 def main(argv: list[str] | None = None) -> int:
     args = build_parser().parse_args(argv)
     if args.command == "doctor":
@@ -83,6 +107,8 @@ def main(argv: list[str] | None = None) -> int:
         return _render(args, DEFAULT_EXAMPLE)
     if args.command == "render":
         return _render(args, args.script)
+    if args.command == "preview":
+        return _preview(args)
     return 2
 
 

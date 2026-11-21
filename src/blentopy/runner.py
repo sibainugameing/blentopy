@@ -39,37 +39,14 @@ def validate_render_settings(width: int, height: int, fps: int, duration_seconds
         raise ValueError("A render may not exceed 3,600 frames.")
 
 
-def render_script(
-    script_path: str | Path, *, output_path: str | Path,
-    blend_path: str | Path | None = None, workspace: str | Path | None = None,
-    blender: str | None = None, width: int = 720, height: int = 1280,
-    fps: int = 30, duration_seconds: int = 8, timeout_seconds: int = 3_600,
-) -> RenderResult:
-    validate_render_settings(width, height, fps, duration_seconds)
-    source_path = Path(script_path).expanduser().resolve(strict=True)
-    if not source_path.is_file():
-        raise FileNotFoundError(f"Scene script is not a regular file: {source_path}")
-    validate_script(source_path.read_text(encoding="utf-8"))
-
-    workspace_path = Path(workspace or source_path.parent).expanduser().resolve()
-    output = Path(output_path).expanduser().resolve()
-    if output.suffix.lower() != ".mp4":
-        output = output.with_suffix(".mp4")
-    blend = Path(blend_path).expanduser().resolve() if blend_path else output.with_suffix(".blend")
-    output.parent.mkdir(parents=True, exist_ok=True)
-    blend.parent.mkdir(parents=True, exist_ok=True)
-    workspace_path.mkdir(parents=True, exist_ok=True)
-
-    executable = find_blender(blender)
-    worker = Path(__file__).with_name("worker.py").resolve()
-    command = [
-        executable, "--background", "--factory-startup",
-        "--python-exit-code", "1", "--python", str(worker),
-    ]
+def _prepare_scene_environment(
+    script_path: Path, output: Path, blend: Path, workspace: Path,
+    width: int, height: int, fps: int, duration_seconds: int,
+) -> dict[str, str]:
     env = os.environ.copy()
     env.update({
-        "BLENTOPY_SCRIPT": str(source_path),
-        "BLENTOPY_WORKSPACE": str(workspace_path),
+        "BLENTOPY_SCRIPT": str(script_path),
+        "BLENTOPY_WORKSPACE": str(workspace),
         "BLENTOPY_OUTPUT": str(output),
         "BLENTOPY_BLEND": str(blend),
         "BLENTOPY_WIDTH": str(width),
@@ -77,6 +54,47 @@ def render_script(
         "BLENTOPY_FPS": str(fps),
         "BLENTOPY_DURATION": str(duration_seconds),
     })
+    return env
+
+
+def _resolve_scene_paths(
+    script_path: str | Path, output_path: str | Path,
+    blend_path: str | Path | None, workspace: str | Path | None,
+) -> tuple[Path, Path, Path, Path]:
+    source = Path(script_path).expanduser().resolve(strict=True)
+    if not source.is_file():
+        raise FileNotFoundError(f"Scene script is not a regular file: {source}")
+    validate_script(source.read_text(encoding="utf-8"))
+    workspace_dir = Path(workspace or source.parent).expanduser().resolve()
+    output = Path(output_path).expanduser().resolve()
+    if output.suffix.lower() != ".mp4":
+        output = output.with_suffix(".mp4")
+    blend = Path(blend_path).expanduser().resolve() if blend_path else output.with_suffix(".blend")
+    output.parent.mkdir(parents=True, exist_ok=True)
+    blend.parent.mkdir(parents=True, exist_ok=True)
+    workspace_dir.mkdir(parents=True, exist_ok=True)
+    return source, output, blend, workspace_dir
+
+
+def render_script(
+    script_path: str | Path, *, output_path: str | Path,
+    blend_path: str | Path | None = None, workspace: str | Path | None = None,
+    blender: str | None = None, width: int = 720, height: int = 1280,
+    fps: int = 30, duration_seconds: int = 8, timeout_seconds: int = 3_600,
+) -> RenderResult:
+    validate_render_settings(width, height, fps, duration_seconds)
+    source, output, blend, workspace_dir = _resolve_scene_paths(
+        script_path, output_path, blend_path, workspace
+    )
+    executable = find_blender(blender)
+    worker = Path(__file__).with_name("worker.py").resolve()
+    command = [
+        executable, "--background", "--factory-startup",
+        "--python-exit-code", "1", "--python", str(worker),
+    ]
+    env = _prepare_scene_environment(
+        source, output, blend, workspace_dir, width, height, fps, duration_seconds
+    )
 
     try:
         completed = subprocess.run(
@@ -104,5 +122,31 @@ def render_script(
             raise RenderError(f"MP4 output was not found: {output}", log=log)
     if not blend.exists():
         raise RenderError(f"Blend project was not found: {blend}", log=log)
-
     return RenderResult(executable, output, blend, completed.returncode, log)
+
+
+def preview_script(
+    script_path: str | Path, *, output_path: str | Path,
+    blend_path: str | Path | None = None, workspace: str | Path | None = None,
+    blender: str | None = None, width: int = 720, height: int = 1280,
+    fps: int = 30, duration_seconds: int = 8,
+) -> tuple[str, Path]:
+    """Open Blender's GUI, build the scene, save the .blend, and keep the GUI open."""
+    validate_render_settings(width, height, fps, duration_seconds)
+    source, output, blend, workspace_dir = _resolve_scene_paths(
+        script_path, output_path, blend_path, workspace
+    )
+    executable = find_blender(blender)
+    worker = Path(__file__).with_name("preview_worker.py").resolve()
+    command = [
+        executable, "--factory-startup", "--python-exit-code", "1",
+        "--python", str(worker),
+    ]
+    env = _prepare_scene_environment(
+        source, output, blend, workspace_dir, width, height, fps, duration_seconds
+    )
+    try:
+        process = subprocess.Popen(command, env=env)
+    except OSError as exc:
+        raise RenderError(f"Failed to launch Blender GUI: {exc}") from exc
+    return executable, blend
