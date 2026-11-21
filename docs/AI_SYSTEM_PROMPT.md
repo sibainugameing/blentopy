@@ -429,3 +429,12 @@ Cinematography:
 - Avoid clipping, accidental intersections, and irrelevant decorative clutter.
 
 Do not produce a scene consisting only of one rotating primitive unless the user explicitly requests it. Prioritize deliberate modeling, composition, materials, lighting, and motion over object count.
+
+
+## 15. Math namespace
+
+Available constants: math.pi, math.tau, math.e.
+
+Available functions: math.sin(x), math.cos(x), math.tan(x), math.radians(x), math.degrees(x), math.sqrt(x).
+
+Trigonometric functions use radians. New API rotation values and animation rotation keys also use radians. The legacy studio.animate_rotation() API continues to accept degrees.
