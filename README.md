@@ -312,7 +312,7 @@ New scripts do not access bpy directly. The full authoring contract, including a
 
 When you are not using MCP, you can ask an AI to generate a script with a prompt such as:
 
-> Create a polished 8-second vertical 3D video using the blentopy Studio API. Plan an opening hook, a developing action, and a clear final pose. Use foreground/midground/background depth, a coherent color palette, beveled or smooth geometry, purposeful materials, key/fill/rim lighting, and a moving camera. Use bounded range() loops and arithmetic for repeated details. Do not use imports, bpy, nested loops, if/else, functions, or unsupported Python. Return only a complete scene script.
+> Create a polished 8-second vertical 3D scene using blentopy 0.2. Use studio.scene, studio.geo, and studio.mat. Build an object hierarchy with stable IDs, use semantic placement and camera framing, create distinct PBR materials and key/fill/rim lighting, and animate with second-based motion tracks. Use if/else and bounded nested range() loops where useful. Do not use imports, bpy, functions, or unsupported Python. Return only a complete scene script.
 
 Save the generated code to **examples/my_scene.py**, then preview it:
 
@@ -535,7 +535,7 @@ The following constants and functions are exposed through **math**:
 - Constants: **math.pi**, **math.tau**, **math.e**
 - Functions: **math.sin**, **math.cos**, **math.tan**, **math.radians**, **math.degrees**, **math.sqrt**
 
-The validator allows basic arithmetic and bounded range() loops. Nested loops, unbounded loops, and conditional statements remain unsupported. The only builtin exposed to scripts is validated range(), used directly as a for-loop iterator.
+The validator allows assignments, conditionals, comparisons, boolean expressions, basic arithmetic, and bounded nested range() loops. Nested loops are limited to three levels and 4,096 expanded iterations in total. Function definitions, unbounded loops, imports, and arbitrary builtins remain unsupported. The only builtin exposed to scripts is validated range(), used directly as a for-loop iterator.
 
 ## Using audio
 
@@ -804,7 +804,7 @@ The validator rejects imports, raw bpy access, private/dunder attributes, arbitr
 
 ## Current limitations
 
-- The API supports richer primitive-based scene assembly, basic procedural repetition, camera motion, and stylized materials; sculpting, rigging, and complex character animation are not implemented.
+- The AI-native API supports geometry/material specs, Object3D handles, groups, custom meshes, spatial helpers, camera/light creation, second-based transform tracks, and targeted in-script edits. Sculpting, rigging, and complex character animation are not implemented.
 - No AI model is bundled with blentopy.
 - Text-to-speech, music generation, and image generation require separate tools.
 - Advanced modeling, rigging, and character workflows are not implemented.
