@@ -567,6 +567,11 @@ def _stream_blender_process(
 
             return_code = process.poll()
             if reader_finished and return_code is not None:
+                # The EOF marker is enqueued immediately before the reader thread
+                # returns. Join it explicitly so Windows does not leave a daemon
+                # thread racing interpreter shutdown after a successful render.
+                reader.join(timeout=2)
+                drain_queue()
                 return return_code, "".join(log_lines).strip()
 
             remaining = deadline - time.monotonic()
