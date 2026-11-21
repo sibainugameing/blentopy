@@ -308,7 +308,7 @@ def render_script(
             raise RenderError(f"MP4 output was not found: {output}", log=log)
     if not blend.exists():
         raise RenderError(f"Blend project was not found: {blend}", log=log)
-    return RenderResult(executable, output, blend, completed.returncode, log)
+    return RenderResult(executable, output, blend, return_code, log)
 
 
 def _read_preview_log(path: Path) -> str:

@@ -307,12 +307,12 @@ class SceneAPI:
 
     __slots__ = ("_owner", "_objects", "_camera", "_duration", "_fps", "_materials", "_counters")
 
-    def __init__(self, owner: AIStudio) -> None:
+    def __init__(self, owner: AIStudio, *, duration: float = 8, fps: int = 30) -> None:
         self._owner = owner
         self._objects: dict[str, Object3D] = {}
         self._camera: Object3D | None = None
-        self._duration = 8.0
-        self._fps = 30
+        self._duration = float(duration)
+        self._fps = int(fps)
         self._materials: dict[tuple[Any, ...], Any] = {}
         self._counters: dict[str, int] = {}
 
@@ -322,18 +322,21 @@ class SceneAPI:
 
     def configure(
         self,
-        duration: float = 8,
-        fps: int = 30,
+        duration: float | None = None,
+        fps: int | None = None,
         background: str | Sequence[float] = "#101522",
     ) -> None:
-        if not math.isfinite(duration) or not 0 < duration <= 120:
+        # Inherit the render job's timebase unless the script explicitly overrides it.
+        resolved_duration = self._duration if duration is None else duration
+        resolved_fps = self._fps if fps is None else fps
+        if not math.isfinite(resolved_duration) or not 0 < resolved_duration <= 120:
             raise ValueError("duration must be greater than 0 and at most 120 seconds.")
-        if type(fps) is not int or not 1 <= fps <= 60:
+        if type(resolved_fps) is not int or not 1 <= resolved_fps <= 60:
             raise ValueError("fps must be an integer between 1 and 60.")
-        if round(float(duration) * fps) < 1:
+        if round(float(resolved_duration) * resolved_fps) < 1:
             raise ValueError("duration and fps must produce at least one frame.")
-        self._duration = float(duration)
-        self._fps = int(fps)
+        self._duration = float(resolved_duration)
+        self._fps = resolved_fps
         self._backend.set_timeline(self._duration, self._fps)
         self._backend.set_world_color(_color(background), strength=0.35)
 
@@ -958,7 +961,7 @@ class AIStudio:
             fps=fps,
             duration_seconds=duration_seconds,
         )
-        self.scene = SceneAPI(self)
+        self.scene = SceneAPI(self, duration=duration_seconds, fps=fps)
         self.geo = GeometryFactory()
         self.mat = MaterialFactory()
 

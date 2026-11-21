@@ -1,6 +1,7 @@
 import unittest
+from unittest.mock import patch
 
-from blentopy.ai_native import GeometryFactory, MaterialFactory, SceneAPI
+from blentopy.ai_native import AIStudio, GeometryFactory, MaterialFactory, SceneAPI
 
 
 class GeometryFactoryTests(unittest.TestCase):
@@ -47,6 +48,45 @@ class MaterialFactoryTests(unittest.TestCase):
             MaterialFactory.pbr(roughness=1.5)
         with self.assertRaises(ValueError):
             MaterialFactory.emissive(strength=-1)
+
+
+class SceneTimebaseTests(unittest.TestCase):
+    def test_configure_inherits_render_job_timebase_when_omitted(self):
+        class Backend:
+            def __init__(self):
+                self.timeline = None
+
+            def set_timeline(self, duration, fps):
+                self.timeline = (duration, fps)
+
+            def set_world_color(self, color, strength):
+                pass
+
+        backend = Backend()
+        owner = type("Owner", (), {"_backend": backend})()
+        scene = SceneAPI(owner, duration=12, fps=24)
+
+        scene.configure(background="#102030")
+        self.assertEqual((scene._duration, scene._fps), (12.0, 24))
+        self.assertEqual(backend.timeline, (12.0, 24))
+
+        scene.configure(duration=5, fps=25)
+        self.assertEqual((scene._duration, scene._fps), (5.0, 25))
+        self.assertEqual(backend.timeline, (5.0, 25))
+
+    def test_ai_studio_passes_render_job_timebase_to_scene_api(self):
+        with patch("blentopy.studio.Studio"):
+            studio = AIStudio(
+                workspace="/tmp/blentopy-test",
+                output_path="/tmp/blentopy-test/output.mp4",
+                blend_path="/tmp/blentopy-test/output.blend",
+                width=720,
+                height=1280,
+                fps=24,
+                duration_seconds=12,
+            )
+        self.assertEqual(studio.scene._duration, 12.0)
+        self.assertEqual(studio.scene._fps, 24)
 
 
 class SceneIdTests(unittest.TestCase):

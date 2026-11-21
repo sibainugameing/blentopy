@@ -96,6 +96,7 @@ class RenderProgressTests(unittest.TestCase):
                     RenderProgress(stage="completed"),
                 ],
             )
+            self.assertEqual(result.return_code, 0)
             self.assertIn("Blender startup output", result.log)
             self.assertNotIn("BLENTOPY_", result.log)
             self.assertTrue(result.output_path.is_file())

@@ -114,11 +114,11 @@ The code above uses only documented methods. The timeline is measured in seconds
 scene.configure(duration=8, fps=30, background="#07101F")
 ~~~
 
-- duration: scene duration in seconds; greater than 0 and at most 120.
-- fps: frames per second; integer from 1 through 60.
+- duration: optional scene duration in seconds; when supplied, it must be greater than 0 and at most 120. When omitted, keep the duration requested by the render or preview job.
+- fps: optional frame rate; when supplied, it must be an integer from 1 through 60. When omitted, keep the frame rate requested by the render or preview job.
 - background: RGB/RGBA numeric channels from 0 to 1, or #RRGGBB / #RRGGBBAA.
 
-Call configure() near the beginning of the script.
+The render or preview job's duration and FPS are the initial timeline settings. Call configure() near the beginning only when you need to override them; a background-only call must not reset the timeline.
 
 ## 5. Geometry descriptions
 

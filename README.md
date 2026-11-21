@@ -635,7 +635,7 @@ Add a server entry to the configuration file used by your MCP-compatible applica
 
 Absolute paths are recommended. Relative paths and home-directory shortcuts may be interpreted differently by different MCP clients.
 
-At startup, the MCP server loads **docs/AI_SYSTEM_PROMPT.md** and sends it as server instructions to the connected AI client. This gives the model the scene language, API reference, and cinematic quality rules without requiring you to paste the entire document into every request. Keep this file available in the repository checkout when using the editable installation.
+At startup, the MCP server loads the bundled **AI_SYSTEM_PROMPT.md** resource and sends it as server instructions to the connected AI client. The same authoring contract is maintained at **docs/AI_SYSTEM_PROMPT.md** in the repository. This gives the model the scene language, API reference, and cinematic quality rules without requiring you to paste the entire document into every request; it also works with normal wheel installations, not only editable repository checkouts.
 
 ### 4. Available MCP tools
 
@@ -643,7 +643,7 @@ At startup, the MCP server loads **docs/AI_SYSTEM_PROMPT.md** and sends it as se
 |---|---|
 | **blentopy_environment** | Detects Blender and reports its version, executable path, and workspace. |
 | **blentopy_preview_scene** | Opens Blender GUI, runs a scene script, saves a .blend project, and leaves Blender open. Does not render an MP4. |
-| **blentopy_render_scene** | Runs a scene script and exports an MP4 and .blend project. |
+| **blentopy_render_scene** | Runs a scene script and exports an MP4 and .blend project. Sends MCP progress notifications for scene setup, validation, saving, and rendered frames when the client requests progress. |
 | **blentopy_list_outputs** | Lists recent files in the workspace's renders directory. |
 
 The render and preview tools accept Python source code as a string. The scene language provides **studio**, **math**, and bounded **range()** loops; the MCP server validates scripts with the same restrictions as the CLI. Default output is 1080×1920 at 30 FPS for 8 seconds.

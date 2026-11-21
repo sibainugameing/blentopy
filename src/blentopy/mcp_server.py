@@ -1,16 +1,58 @@
 """Local stdio MCP server for MCP-capable chat applications."""
 
-from __future__ import annotations
-
+import asyncio
 import os
 import re
 import sys
+from importlib.resources import files as package_files
 from datetime import datetime
 from pathlib import Path
 
 from .discovery import BlenderNotFoundError, blender_version, find_blender
-from .runner import RenderError, format_error_report, preview_script, render_script, validate_render_settings
+from .runner import (
+    RenderError, RenderProgress, format_error_report, preview_script,
+    render_script, validate_render_settings,
+)
 from .validation import ScriptValidationError, validate_script
+
+
+def _make_render_progress_callback(ctx: object, loop: asyncio.AbstractEventLoop):
+    """Bridge runner progress events to MCP notifications from the worker thread."""
+    stage_progress = {
+        "building_scene": (0.02, "Building scene"),
+        "validating_scene": (0.06, "Validating scene"),
+        "saving_project": (0.10, "Saving editable Blender project"),
+        "rendering": (0.12, "Rendering video"),
+        "completed": (1.0, "Render completed"),
+    }
+    last_progress = 0.0
+
+    def report(event: RenderProgress) -> None:
+        nonlocal last_progress
+        if event.frame is not None and event.total_frames:
+            fraction = min(1.0, max(0.0, event.frame / event.total_frames))
+            progress = 0.12 + 0.87 * fraction
+            message = f"Rendering frames: {event.frame}/{event.total_frames}"
+        else:
+            value = stage_progress.get(event.stage)
+            if value is None:
+                return
+            progress, message = value
+
+        if progress <= last_progress:
+            return
+        last_progress = progress
+        future = asyncio.run_coroutine_threadsafe(
+            ctx.report_progress(progress, total=1.0, message=message),
+            loop,
+        )
+        try:
+            future.result()
+        except Exception:
+            # A disconnected MCP client must not fail an otherwise valid render.
+            future.cancel()
+
+    return report
 
 
 def workspace_path() -> Path:
@@ -26,11 +68,12 @@ def safe_name(value: str) -> str:
 
 
 def load_ai_system_prompt() -> str:
-    """Load the repository's complete scene-authoring guide for MCP clients."""
-    prompt_path = Path(__file__).resolve().parents[2] / "docs" / "AI_SYSTEM_PROMPT.md"
+    """Load the packaged scene-authoring guide for installed and editable clients."""
     try:
-        return prompt_path.read_text(encoding="utf-8").strip()
-    except OSError:
+        return package_files("blentopy").joinpath("AI_SYSTEM_PROMPT.md").read_text(
+            encoding="utf-8"
+        ).strip()
+    except (OSError, ModuleNotFoundError):
         return (
             "Create composed, animated scenes rather than a single rotating primitive. "
             "Prefer studio.scene, studio.geo, and studio.mat; use stable object IDs, "
@@ -44,6 +87,7 @@ def load_ai_system_prompt() -> str:
 def main() -> None:
     try:
         from mcp.server import MCPServer
+        from mcp.server.mcpserver import Context
     except ImportError:
         print("MCP support is optional. Install with: pip install 'blentopy[mcp]'", file=sys.stderr)
         raise SystemExit(2)
@@ -71,8 +115,8 @@ def main() -> None:
             return f"Blender not ready: {exc}"
 
     @server.tool()
-    def blentopy_render_scene(
-        python_code: str, name: str = "ai-scene",
+    async def blentopy_render_scene(
+        python_code: str, ctx: Context, name: str = "ai-scene",
         width: int = 1080, height: int = 1920, fps: int = 30,
         duration_seconds: int = 8,
     ) -> str:
@@ -101,10 +145,20 @@ def main() -> None:
             blend = renders / f"{slug}-{stamp}.blend"
             script.write_text(python_code.rstrip() + "\n", encoding="utf-8")
 
-            result = render_script(
-                script, output_path=video, blend_path=blend, workspace=workspace,
-                width=width, height=height, fps=fps,
-                duration_seconds=duration_seconds, timeout_seconds=3600,
+            loop = asyncio.get_running_loop()
+            progress_callback = _make_render_progress_callback(ctx, loop)
+            result = await asyncio.to_thread(
+                render_script,
+                script,
+                output_path=video,
+                blend_path=blend,
+                workspace=workspace,
+                width=width,
+                height=height,
+                fps=fps,
+                duration_seconds=duration_seconds,
+                timeout_seconds=3600,
+                progress_callback=progress_callback,
             )
             return (
                 f"Render completed.\nVideo: {result.output_path}\n"
