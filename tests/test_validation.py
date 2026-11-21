@@ -30,6 +30,8 @@ hero = scene.mesh(id="hero", geometry=shape, material=blue, role="hero")
 hero.position.set((0, 0, 1))
 hero.position.x = 0.5
 hero.visible = True
+scene.update(hero, position=(0, 0, 1.2), material=blue, role="main")
+scene.set_material(hero, blue)
 ground = scene.surface(id="ground", size=(12, 12))
 scene.place(hero, on=ground, anchor="top")
 camera = scene.camera(id="camera", position=(0, -8, 3))
@@ -57,7 +59,7 @@ for row in range(4):
         cases = (
             "for i in range(count):\n    studio.add_cube('x')",
             "for i in range(1000):\n    studio.add_cube('x')",
-            "for i in range(65):\n    for j in range(16):\n        studio.add_cube('x')",
+            "for i in range(65):\n    for j in range(65):\n        studio.add_cube('x')",
             "for a in range(2):\n    for b in range(2):\n        for c in range(2):\n            for d in range(2):\n                studio.add_cube('x')",
             "while True:\n    studio.add_cube('x')",
             "for i in range(8):\n    pass",
