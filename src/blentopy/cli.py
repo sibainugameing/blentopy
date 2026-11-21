@@ -10,8 +10,7 @@ from pathlib import Path
 from .discovery import BlenderNotFoundError, blender_version, find_blender
 from .runner import RenderError, render_script
 
-PROJECT_ROOT = Path(__file__).resolve().parents[2]
-DEFAULT_EXAMPLE = PROJECT_ROOT / "examples" / "demo_scene.py"
+DEFAULT_EXAMPLE = Path(__file__).with_name("demo_scene.py")
 
 
 def add_render_options(parser: argparse.ArgumentParser) -> None:
