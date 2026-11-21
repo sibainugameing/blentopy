@@ -134,6 +134,24 @@ for hero in scene.find(role="hero"):
 """
         validate_script(valid)
 
+    def test_compiles_and_executes_instrumented_dynamic_loop(self):
+        tree = validate_script(
+            "count = 3\\n"
+            "for index in range(count):\\n"
+            "    last_index = index\\n"
+        )
+        budget = {"iterations": 0, "expansion_cost": 0}
+        namespace = {
+            "range": _bounded_range,
+            "__blentopy_bounded_iter__": lambda iterable, node_cost: (
+                _bounded_loop_iterator(iterable, node_cost, budget)
+            ),
+            "__builtins__": {},
+        }
+        exec(compile(tree, "<test-scene>", "exec"), namespace, namespace)
+        self.assertEqual(namespace["last_index"], 2)
+        self.assertEqual(budget["iterations"], 3)
+
     def test_runtime_loop_budget_guards_dynamic_work(self):
         with self.assertRaisesRegex(ValueError, "128 iterations"):
             _bounded_range(129)
