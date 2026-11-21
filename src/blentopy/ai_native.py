@@ -492,6 +492,47 @@ class SceneAPI:
         self._require_object(obj)
         return obj
 
+    def update(
+        self,
+        target: Object3D | str,
+        position: Sequence[float] | None = None,
+        rotation: Sequence[float] | None = None,
+        scale: Sequence[float] | None = None,
+        visible: bool | None = None,
+        material: MaterialSpec | None = None,
+        role: str | None = None,
+    ) -> Object3D:
+        """Update selected properties without recreating the scene object."""
+        obj = self._resolve(target)
+        if position is not None:
+            obj.position.set(position)
+        if rotation is not None:
+            obj.rotation.set(rotation)
+        if scale is not None:
+            values = _vector3(scale, "scale")
+            if any(part <= 0 for part in values):
+                raise ValueError("Scale values must be greater than zero.")
+            obj.scale.set(values)
+        if visible is not None:
+            obj.visible = visible
+        if material is not None:
+            self.set_material(obj, material)
+        if role is not None:
+            if not isinstance(role, str) or len(role) > 64:
+                raise ValueError("role must be a string of at most 64 characters.")
+            obj.role = role
+            obj._object["blentopy_role"] = role
+        return obj
+
+    def set_material(self, target: Object3D | str, material: MaterialSpec) -> Object3D:
+        obj = self._resolve(target)
+        if obj.kind != "mesh":
+            raise ValueError("Materials can only be assigned to mesh objects.")
+        new_material = self._material(material, obj.id)
+        obj._object.data.materials.clear()
+        obj._object.data.materials.append(new_material)
+        return obj
+
     def remove(self, target: Object3D | str) -> None:
         obj = self._resolve(target)
         self._owner._backend._bpy.data.objects.remove(obj._object, do_unlink=True)
