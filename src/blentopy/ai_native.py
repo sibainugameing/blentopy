@@ -9,7 +9,7 @@ from __future__ import annotations
 
 import math
 from dataclasses import dataclass
-from typing import Any, Iterable, Sequence
+from typing import Any, Sequence
 
 
 def _vector3(value: Sequence[float], label: str) -> tuple[float, float, float]:
@@ -297,6 +297,8 @@ class Object3D:
         return self
 
     def add(self, child: Object3D) -> None:
+        if self.kind != "group":
+            raise TypeError("Only Group objects can add children; use scene.attach() for other parents.")
         self._scene.attach(child, self)
 
 
@@ -325,8 +327,8 @@ class SceneAPI:
     ) -> None:
         if not math.isfinite(duration) or not 0 < duration <= 120:
             raise ValueError("duration must be greater than 0 and at most 120 seconds.")
-        if not 1 <= int(fps) <= 60:
-            raise ValueError("fps must be between 1 and 60.")
+        if type(fps) is not int or not 1 <= fps <= 60:
+            raise ValueError("fps must be an integer between 1 and 60.")
         self._duration = float(duration)
         self._fps = int(fps)
         self._backend.set_timeline(self._duration, self._fps)
@@ -471,6 +473,10 @@ class SceneAPI:
 
     def add(self, obj: Object3D) -> Object3D:
         self._require_object(obj)
+        if obj._object.parent is not None:
+            world_matrix = obj._object.matrix_world.copy()
+            obj._object.parent = None
+            obj._object.matrix_world = world_matrix
         return obj
 
     def _require_object(self, obj: Object3D) -> None:
@@ -496,6 +502,11 @@ class SceneAPI:
         self._require_object(to)
         if child is to:
             raise ValueError("An object cannot be parented to itself.")
+        ancestor = to._object
+        while ancestor is not None:
+            if ancestor == child._object:
+                raise ValueError("Parenting would create a cycle in the scene graph.")
+            ancestor = ancestor.parent
         world_matrix = child._object.matrix_world.copy()
         child._object.parent = to._object
         child._object.matrix_world = world_matrix
@@ -509,6 +520,7 @@ class SceneAPI:
     ) -> None:
         self._require_object(obj)
         delta = _vector3(offset, "offset")
+        self._backend._bpy.context.view_layer.update()
         if on is None:
             base = (0.0, 0.0, 0.0)
             support = (0.0, 0.0, 0.0)
@@ -538,7 +550,11 @@ class SceneAPI:
         self._require_object(camera)
         if camera.kind != "camera":
             raise ValueError("look_at expects a camera object.")
-        point = target._object.location if isinstance(target, Object3D) else _vector3(target, "target")
+        if isinstance(target, Object3D):
+            self._require_object(target)
+            point = target._object.location
+        else:
+            point = _vector3(target, "target")
         camera._object.rotation_euler = self._backend._camera_rotation(camera._object.location, point)
 
     def frame(
@@ -557,6 +573,7 @@ class SceneAPI:
             self._require_object(item)
         if not math.isfinite(margin) or margin < 1:
             raise ValueError("margin must be finite and at least 1.")
+        self._backend._bpy.context.view_layer.update()
         lows = [min(float(item._object.location[axis]) - float(item._object.dimensions[axis]) / 2 for item in objects) for axis in range(3)]
         highs = [max(float(item._object.location[axis]) + float(item._object.dimensions[axis]) / 2 for item in objects) for axis in range(3)]
         center = tuple((lows[axis] + highs[axis]) / 2 for axis in range(3))
@@ -642,7 +659,7 @@ class SceneAPI:
         if type not in kinds:
             raise ValueError("Light type must be area, point, spot, or directional.")
         if not math.isfinite(energy) or energy < 0 or not math.isfinite(size) or size <= 0:
-            raise ValueError("Light energy and size must be finite and positive.")
+            raise ValueError("Light energy must be finite and non-negative; size must be finite and positive.")
         if isinstance(target, Object3D):
             self._require_object(target)
         bpy = self._backend._bpy
