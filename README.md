@@ -16,7 +16,7 @@ blentopy is not an AI model and does not call a hosted AI API. An MCP-capable ch
 - [Previewing a scene in the Blender GUI](#previewing-a-scene-in-the-blender-gui)
 - [Rendering an MP4](#rendering-an-mp4)
 - [Writing scene scripts](#writing-scene-scripts)
-- [Studio API reference](#studio-api-reference)
+- [AI-native scene API](#ai-native-scene-api-02)
 - [Using audio](#using-audio)
 - [Connecting an MCP chat client](#connecting-an-mcp-chat-client)
 - [Output files](#output-files)
