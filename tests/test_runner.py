@@ -12,6 +12,7 @@ from blentopy.runner import (
     format_error_report,
     preview_script,
     render_script,
+    _stream_blender_process,
     validate_render_settings,
 )
 
@@ -101,6 +102,109 @@ class RenderProgressTests(unittest.TestCase):
             self.assertNotIn("BLENTOPY_", result.log)
             self.assertTrue(result.output_path.is_file())
             self.assertTrue(result.blend_path.is_file())
+
+
+class RenderProcessLifecycleTests(unittest.TestCase):
+    def test_callback_failure_does_not_abort_render_or_leak_blender(self):
+        with tempfile.TemporaryDirectory() as folder:
+            root = Path(folder)
+            script = root / "scene.py"
+            script.write_text('studio.add_cube("Cube")\\n', encoding="utf-8")
+
+            def launch(_command, **kwargs):
+                env = kwargs["env"]
+                Path(env["BLENTOPY_OUTPUT"]).write_bytes(b"new video")
+                Path(env["BLENTOPY_BLEND"]).write_bytes(b"new project")
+                return _StreamingRenderProcess()
+
+            def broken_callback(_event):
+                raise RuntimeError("progress UI is unavailable")
+
+            with patch("blentopy.runner.find_blender", return_value="/fake/Blender"):
+                with patch("blentopy.runner.subprocess.Popen", side_effect=launch):
+                    result = render_script(
+                        script,
+                        output_path=root / "renders" / "scene.mp4",
+                        workspace=root / "workspace",
+                        progress_callback=broken_callback,
+                    )
+
+            self.assertIn("Progress callback disabled", result.log)
+            self.assertTrue(result.output_path.is_file())
+            self.assertTrue(result.blend_path.is_file())
+
+    def test_stdout_eof_does_not_bypass_blender_process_timeout(self):
+        class StuckProcess:
+            def __init__(self):
+                self.stdout = io.StringIO("")
+                self.returncode = None
+                self.terminated = False
+
+            def poll(self):
+                return self.returncode
+
+            def terminate(self):
+                self.terminated = True
+                self.returncode = -15
+
+            def wait(self, timeout=None):
+                return self.returncode
+
+            def kill(self):
+                self.returncode = -9
+
+        process = StuckProcess()
+        with patch("blentopy.runner.subprocess.Popen", return_value=process):
+            with self.assertRaisesRegex(RenderError, "timeout"):
+                _stream_blender_process(
+                    ["blender"], env={}, timeout_seconds=1, progress_callback=None,
+                )
+        self.assertTrue(process.terminated)
+
+    def test_failed_render_preserves_existing_output_files(self):
+        with tempfile.TemporaryDirectory() as folder:
+            root = Path(folder)
+            script = root / "scene.py"
+            script.write_text('studio.add_cube("Cube")\\n', encoding="utf-8")
+            output = root / "renders" / "scene.mp4"
+            blend = root / "renders" / "scene.blend"
+            output.parent.mkdir(parents=True)
+            output.write_bytes(b"previous video")
+            blend.write_bytes(b"previous project")
+
+            with patch("blentopy.runner.find_blender", return_value="/fake/Blender"):
+                with patch(
+                    "blentopy.runner.subprocess.Popen",
+                    return_value=_StreamingRenderProcess(),
+                ):
+                    with self.assertRaisesRegex(RenderError, "MP4 output was not created"):
+                        render_script(
+                            script, output_path=output, blend_path=blend,
+                            workspace=root / "workspace",
+                        )
+
+            self.assertEqual(output.read_bytes(), b"previous video")
+            self.assertEqual(blend.read_bytes(), b"previous project")
+
+    def test_empty_render_artifact_is_rejected(self):
+        with tempfile.TemporaryDirectory() as folder:
+            root = Path(folder)
+            script = root / "scene.py"
+            script.write_text('studio.add_cube("Cube")\\n', encoding="utf-8")
+
+            def launch(_command, **kwargs):
+                env = kwargs["env"]
+                Path(env["BLENTOPY_OUTPUT"]).write_bytes(b"")
+                Path(env["BLENTOPY_BLEND"]).write_bytes(b"new project")
+                return _StreamingRenderProcess()
+
+            with patch("blentopy.runner.find_blender", return_value="/fake/Blender"):
+                with patch("blentopy.runner.subprocess.Popen", side_effect=launch):
+                    with self.assertRaisesRegex(RenderError, "MP4 output is empty"):
+                        render_script(
+                            script, output_path=root / "renders" / "scene.mp4",
+                            workspace=root / "workspace",
+                        )
 
 
 class PreviewRunnerTests(unittest.TestCase):
