@@ -162,6 +162,25 @@ class RigAndSimulationValidationTests(unittest.TestCase):
             ])
 
 
+
+    def test_image_texture_path_must_remain_inside_workspace(self):
+        import tempfile
+        from pathlib import Path
+        from types import SimpleNamespace
+        from blentopy.ai_native import MaterialFactory, SceneAPI
+
+        with tempfile.TemporaryDirectory() as folder:
+            workspace = Path(folder)
+            outside = workspace.parent / "outside.png"
+            outside.write_bytes(b"png")
+            scene = object.__new__(SceneAPI)
+            scene._backend = SimpleNamespace(_workspace=workspace)
+            scene._materials = {}
+            material = MaterialFactory.image_texture(str(outside))
+            with self.assertRaisesRegex(ValueError, "inside the blentopy workspace"):
+                SceneAPI._material(scene, material, "test.material")
+            outside.unlink()
+
 class SceneRenderValidationTests(unittest.TestCase):
     @staticmethod
     def make_scene(camera, *, width=1080, height=1920):

@@ -16,7 +16,15 @@ hero = scene.mesh(
     material=material,
     role="hero",
 )
-ground = scene.surface(id="ci.ground", size=(6, 6))
+ground_material = studio.mat.image_texture(
+    "ci_texture.png",
+    roughness=0.9,
+)
+ground = scene.surface(
+    id="ci.ground",
+    size=(6, 6),
+    material=ground_material,
+)
 scene.place(hero, on=ground, anchor="top")
 
 rig = scene.armature(
