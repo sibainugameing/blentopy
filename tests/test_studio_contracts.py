@@ -4,7 +4,37 @@ from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import Mock
 
-from blentopy.studio import Studio
+from blentopy.studio import Studio, _normalize_rendered_mp4
+
+
+class StudioOutputTests(unittest.TestCase):
+    def test_normalize_rendered_mp4_accepts_frame_range_filename(self):
+        with tempfile.TemporaryDirectory() as folder:
+            root = Path(folder)
+            expected = root / ".scene.1234.mp4"
+            frame_range = root / ".scene.1234-0001-0012.mp4"
+            frame_range.write_bytes(b"\x00\x00\x00\x18ftypisom0000")
+            self.assertEqual(_normalize_rendered_mp4(expected), expected)
+            self.assertTrue(expected.is_file())
+            self.assertFalse(frame_range.exists())
+            self.assertTrue(expected.read_bytes().startswith(b"\x00\x00\x00\x18ftyp"))
+
+    def test_normalize_rendered_mp4_rejects_non_mp4_and_reports_candidates(self):
+        with tempfile.TemporaryDirectory() as folder:
+            root = Path(folder)
+            expected = root / ".scene.1234.mp4"
+            (root / ".scene.1234-0001-0012.mp4").write_bytes(b"not an mp4")
+            with self.assertRaisesRegex(RuntimeError, "Nearby files"):
+                _normalize_rendered_mp4(expected)
+
+    def test_normalize_rendered_mp4_rejects_ambiguous_candidates(self):
+        with tempfile.TemporaryDirectory() as folder:
+            root = Path(folder)
+            expected = root / ".scene.1234.mp4"
+            (root / ".scene.1234-0001.mp4").write_bytes(b"\x00\x00\x00\x18ftypisom0000")
+            (root / ".scene.1234-0002.mp4").write_bytes(b"\x00\x00\x00\x18ftypisom0000")
+            with self.assertRaisesRegex(RuntimeError, "multiple candidate"):
+                _normalize_rendered_mp4(expected)
 
 
 class StudioInputValidationTests(unittest.TestCase):

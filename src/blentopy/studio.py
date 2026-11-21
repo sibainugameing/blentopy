@@ -13,6 +13,65 @@ Vector3 = Sequence[float]
 
 _ALLOWED_INTERPOLATIONS = frozenset({"BEZIER", "LINEAR", "CONSTANT"})
 
+def _normalize_rendered_mp4(output_path: Path) -> Path:
+    """Find Blender's FFmpeg output, including version-specific frame-range suffixes."""
+    output_path = Path(output_path)
+    candidates = {output_path, Path(f"{output_path}.mp4")}
+    try:
+        candidates.update(
+            path for path in output_path.parent.glob(f"{output_path.stem}*.mp4")
+            if path.is_file()
+        )
+    except OSError:
+        pass
+
+    valid: list[Path] = []
+    invalid: list[str] = []
+    for candidate in sorted(candidates, key=lambda item: str(item)):
+        if not candidate.is_file():
+            continue
+        try:
+            with candidate.open("rb") as stream:
+                header = stream.read(12)
+        except OSError as exc:
+            invalid.append(f"{candidate.name}: {exc}")
+            continue
+        if len(header) >= 12 and header[4:8] == b"ftyp":
+            valid.append(candidate)
+        else:
+            invalid.append(f"{candidate.name}: missing MP4 ftyp header")
+
+    if len(valid) > 1:
+        raise RuntimeError(
+            "Blender produced multiple candidate MP4 files for one render: "
+            + ", ".join(path.name for path in valid)
+        )
+    if not valid:
+        try:
+            nearby = sorted(
+                path.name for path in output_path.parent.iterdir()
+                if path.name.startswith(output_path.stem)
+            )[:20]
+        except OSError as exc:
+            nearby = [f"<cannot list output directory: {exc}>"]
+        details = "; ".join(invalid) if invalid else "no candidate MP4 files found"
+        raise RuntimeError(
+            f"MP4 output was not created at '{output_path}'. "
+            f"Blender FFmpeg may append a frame-range suffix. "
+            f"Nearby files: {nearby}. Candidate diagnostics: {details}."
+        )
+
+    actual = valid[0]
+    if actual != output_path:
+        if output_path.exists():
+            raise RuntimeError(
+                f"Cannot normalize Blender MP4 output '{actual}' because destination "
+                f"already exists: '{output_path}'."
+            )
+        actual.replace(output_path)
+    return output_path
+
+
 
 class Studio:
     """High-level scene API for constrained AI-authored Blender projects."""
@@ -788,9 +847,14 @@ class Studio:
             if render_write_handlers is not None and report_rendered_frame in render_write_handlers:
                 render_write_handlers.remove(report_rendered_frame)
 
-        if not self._output_path.exists():
-            alternate = Path(f"{self._output_path}.mp4")
-            if alternate.exists():
-                return alternate, self._blend_path
-            raise RuntimeError(f"MP4 output was not created: {self._output_path}")
+        ffmpeg_available = bool(getattr(self._bpy.app.build_options, "ffmpeg", False))
+        try:
+            _normalize_rendered_mp4(self._output_path)
+        except RuntimeError as exc:
+            raise RuntimeError(
+                f"{exc} Blender build FFmpeg support: {ffmpeg_available}. "
+                f"Configured format: {render.image_settings.file_format}; "
+                f"container: {render.ffmpeg.format}; codec: {render.ffmpeg.codec}; "
+                f"render filepath: {render.filepath}."
+            ) from exc
         return self._output_path, self._blend_path
