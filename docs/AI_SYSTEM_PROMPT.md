@@ -98,6 +98,11 @@ motion = scene.motion(hero)
 rise = motion.track("position")
 rise.key(at=0, value=(0, 0, 0.8), ease="smooth")
 rise.key(at=2, value=(0, 0, 2.4), ease="smooth")
+
+# The documented direct form is also valid:
+spin = scene.motion(hero).track("rotation")
+spin.key(at=0, value=(0, 0, 0))
+spin.key(at=2, value=(0, 0, math.tau), ease="linear")
 rise.key(at=4, value=(0, 0, 1.4), ease="smooth")
 ~~~
 
@@ -373,6 +378,8 @@ scale_track.key(at=1, value=(1.2, 1.2, 1.2), ease="smooth")
 
 - scene.motion(object) returns a motion controller.
 - motion.track("position" | "rotation" | "scale") creates a transform track.
+- The direct chained form scene.motion(object).track("position" | "rotation" | "scale") is also supported.
+- Store the returned track in a variable, then call track.key(...); do not chain .key() directly onto scene.motion(...).track(...).
 - track.key(at, value, ease="smooth") inserts a keyframe.
 - ease accepts smooth, linear, or constant.
 - Keyframe times must be within the configured duration.
@@ -404,6 +411,8 @@ Allowed:
 - Lists, tuples, and dictionaries.
 - Comparisons, boolean and / or / not, unary plus/minus, and arithmetic +, -, *, /, //, %.
 - Calls to documented studio, scene, geo, mat, object-handle, vector, motion, track, and math methods.
+- Direct method chaining is supported only for scene.motion(object).track(channel). For other API calls, assign the result to a variable before calling methods on it.
+- The only available built-in function is range(), and it may appear only as a bounded for-loop iterator. Do not call max(), min(), len(), sum(), abs(), round(), str(), int(), enumerate(), zip(), or other Python built-ins.
 
 Loop limits:
 - Each range() loop may execute at most 128 iterations.
