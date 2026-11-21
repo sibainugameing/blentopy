@@ -678,17 +678,58 @@ class SceneAPI:
         highs = [max(bound[1][axis] for bound in bounds) for axis in range(3)]
         center = tuple((lows[axis] + highs[axis]) / 2 for axis in range(3))
         extent = tuple(max(0.1, highs[axis] - lows[axis]) for axis in range(3))
-        direction = self._backend._Vector(camera._object.location) - self._backend._Vector(center)
+        camera_position = self._backend._Vector(camera._object.matrix_world.translation)
+        direction = camera_position - self._backend._Vector(center)
         if direction.length == 0:
             direction = self._backend._Vector((0, -1, 0.5))
         direction.normalize()
         data = camera._object.data
         if data.type == "ORTHO":
-            data.ortho_scale = max(extent[0], extent[2], extent[1]) * margin
+            render = self._backend.scene.render
+            aspect = (
+                render.resolution_x * render.pixel_aspect_x
+            ) / max(1, render.resolution_y * render.pixel_aspect_y)
+            half_width = 0.5 * (
+                abs(direction.cross(self._backend._Vector((0, 0, 1))).x) * extent[0]
+                + abs(direction.cross(self._backend._Vector((0, 0, 1))).y) * extent[1]
+                + abs(direction.cross(self._backend._Vector((0, 0, 1))).z) * extent[2]
+            )
+            data.ortho_scale = max(2 * half_width, max(extent[0], extent[1], extent[2]) * min(aspect, 1.0)) * margin
         else:
-            half_fov = math.atan(data.sensor_height / (2 * max(10, data.lens)))
-            distance = max(extent) * margin / max(0.1, 2 * math.tan(half_fov))
-            camera._object.location = self._backend._Vector(center) + direction * distance
+            render = self._backend.scene.render
+            aspect = (
+                render.resolution_x * render.pixel_aspect_x
+            ) / max(1, render.resolution_y * render.pixel_aspect_y)
+            aspect = max(0.01, aspect)
+            forward = -direction
+            world_up = self._backend._Vector((0, 0, 1))
+            right = forward.cross(world_up)
+            if right.length < 1e-6:
+                right = forward.cross(self._backend._Vector((0, 1, 0)))
+            right.normalize()
+            up = right.cross(forward).normalized()
+            half_width = 0.5 * (
+                abs(right.x) * extent[0]
+                + abs(right.y) * extent[1]
+                + abs(right.z) * extent[2]
+            )
+            half_height = 0.5 * (
+                abs(up.x) * extent[0]
+                + abs(up.y) * extent[1]
+                + abs(up.z) * extent[2]
+            )
+            half_depth = 0.5 * (
+                abs(forward.x) * extent[0]
+                + abs(forward.y) * extent[1]
+                + abs(forward.z) * extent[2]
+            )
+            half_vertical_fov = math.atan(data.sensor_height / (2 * max(10, data.lens)))
+            half_horizontal_fov = math.atan(math.tan(half_vertical_fov) * aspect)
+            distance = max(
+                half_width / max(0.01, math.tan(half_horizontal_fov)),
+                half_height / max(0.01, math.tan(half_vertical_fov)),
+            ) + half_depth
+            camera._object.location = self._backend._Vector(center) + direction * distance * margin
         self.look_at(camera, center)
 
     def align(
