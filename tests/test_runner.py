@@ -1,4 +1,5 @@
 import io
+import os
 import json
 import tempfile
 import threading
@@ -107,7 +108,7 @@ class RenderProgressTests(unittest.TestCase):
 
             def launch(_command, **kwargs):
                 env = kwargs["env"]
-                Path(env["BLENTOPY_OUTPUT"]).write_bytes(b"\\x00\\x00\\x00\\x18ftypisom0000")
+                Path(env["BLENTOPY_OUTPUT"]).write_bytes(b"\x00\x00\x00\x18ftypisom0000")
                 Path(env["BLENTOPY_BLEND"]).write_bytes(b"BLENDER-v300")
                 return _StreamingRenderProcess()
 
@@ -200,7 +201,7 @@ class RenderProcessLifecycleTests(unittest.TestCase):
 
             def launch(_command, **kwargs):
                 env = kwargs["env"]
-                Path(env["BLENTOPY_OUTPUT"]).write_bytes(b"\\x00\\x00\\x00\\x18ftypisom0000")
+                Path(env["BLENTOPY_OUTPUT"]).write_bytes(b"\x00\x00\x00\x18ftypisom0000")
                 Path(env["BLENTOPY_BLEND"]).write_bytes(b"BLENDER-v300")
                 return _StreamingRenderProcess()
 
