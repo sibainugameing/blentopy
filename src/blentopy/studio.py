@@ -117,7 +117,7 @@ class Studio:
         if self._scene_strip is None:
             self._scene_strip = self._new_scene_strip()
 
-        self._audio_strips = {}
+        self._restore_audio_strips()
         if self._bpy.context.window is not None:
             self._bpy.context.window.scene = self.scene
 
@@ -189,14 +189,50 @@ class Studio:
     def _rgba(color: Color) -> tuple[float, float, float, float]:
         if len(color) not in (3, 4):
             raise ValueError("Color must contain RGB or RGBA values.")
+        if any(type(value) not in {int, float} for value in color):
+            raise TypeError("Color channels must be integers or floats.")
         values = tuple(float(value) for value in color)
         if any(not math.isfinite(value) or value < 0 or value > 1 for value in values):
             raise ValueError("Color channels must be finite values between 0 and 1.")
         return values if len(values) == 4 else (*values, 1.0)
 
     @staticmethod
+    def _finite_scalar(value: float, label: str) -> float:
+        if type(value) not in {int, float} or not math.isfinite(value):
+            raise ValueError(f"{label} must be a finite number.")
+        return float(value)
+
+    @staticmethod
+    def _vector3(value: Vector3, label: str) -> tuple[float, float, float]:
+        if isinstance(value, (str, bytes)):
+            raise TypeError(f"{label} must be a three-number sequence.")
+        try:
+            parts = tuple(value)
+        except TypeError as exc:
+            raise TypeError(f"{label} must be a three-number sequence.") from exc
+        if len(parts) != 3 or any(type(part) not in {int, float} for part in parts):
+            raise ValueError(f"{label} must contain exactly three numeric components.")
+        result = tuple(float(part) for part in parts)
+        if not all(math.isfinite(part) for part in result):
+            raise ValueError(f"{label} components must be finite.")
+        return result
+
+    @staticmethod
     def _clamp(value: float, low: float, high: float) -> float:
-        return min(max(float(value), low), high)
+        number = Studio._finite_scalar(value, "Value")
+        return min(max(number, low), high)
+
+    def _restore_audio_strips(self) -> None:
+        """Rebuild name-to-strip references after opening an existing .blend."""
+        self._audio_strips = {}
+        collection = getattr(self._sequence_editor, "strips", None)
+        if collection is None:
+            collection = getattr(self._sequence_editor, "sequences", None)
+        if collection is None:
+            return
+        for strip in collection:
+            if getattr(strip, "type", None) == "SOUND" or getattr(strip, "sound", None) is not None:
+                self._audio_strips[str(strip.name)] = strip
 
     def _material(
         self, name: str, color: Color, metallic: float = 0.0,
@@ -247,9 +283,9 @@ class Studio:
     ) -> str:
         obj = self._active_object()
         obj.name = name
-        obj.location = tuple(location)
-        obj.scale = tuple(scale)
-        obj.rotation_euler = tuple(rotation)
+        obj.location = self._vector3(location, "location")
+        obj.scale = self._vector3(scale, "scale")
+        obj.rotation_euler = self._vector3(rotation, "rotation")
         obj.data.materials.append(self._material(
             name, color, metallic, roughness, emission_color, emission_strength, coat
         ))
@@ -267,12 +303,13 @@ class Studio:
         return obj.name
 
     def set_timeline(self, duration_seconds: float, fps: int | None = None) -> None:
+        duration_seconds = self._finite_scalar(duration_seconds, "duration_seconds")
         if not 0 < duration_seconds <= 120:
             raise ValueError("duration_seconds must be > 0 and <= 120.")
         if fps is not None:
-            if not 1 <= fps <= 60:
-                raise ValueError("fps must be between 1 and 60.")
-            self._fps = int(fps)
+            if type(fps) is not int or not 1 <= fps <= 60:
+                raise ValueError("fps must be an integer between 1 and 60.")
+            self._fps = fps
         frame_end = self.scene.frame_start + round(duration_seconds * self._fps) - 1
         self.scene.frame_end = frame_end
         self.scene.render.fps = self._fps
@@ -529,8 +566,10 @@ class Studio:
         return light.name
 
     def _animation_frames(self, start_frame: int, end_frame: int | None) -> tuple[int, int]:
-        start = int(start_frame)
-        end = self.scene.frame_end if end_frame is None else int(end_frame)
+        if type(start_frame) is not int or (end_frame is not None and type(end_frame) is not int):
+            raise TypeError("Animation start_frame and end_frame must be integers.")
+        start = start_frame
+        end = self.scene.frame_end if end_frame is None else end_frame
         if start < self.scene.frame_start or end > self.scene.frame_end or end <= start:
             raise ValueError(
                 f"Animation frames must satisfy {self.scene.frame_start} <= start < end <= {self.scene.frame_end}."
@@ -561,9 +600,9 @@ class Studio:
     ) -> None:
         obj = self._object(name)
         start, end = self._animation_frames(start_frame, end_frame)
-        obj.location = tuple(start_location)
+        obj.location = self._vector3(start_location, "start_location")
         obj.keyframe_insert(data_path="location", frame=start)
-        obj.location = tuple(end_location)
+        obj.location = self._vector3(end_location, "end_location")
         obj.keyframe_insert(data_path="location", frame=end)
         self._set_interpolation(obj, interpolation, ("location",))
 
@@ -577,9 +616,11 @@ class Studio:
         obj = self._object(name)
         start, end = self._animation_frames(start_frame, end_frame)
         obj.rotation_mode = "XYZ"
-        obj.rotation_euler = tuple(radians(float(v)) for v in start_degrees)
+        start_values = self._vector3(start_degrees, "start_degrees")
+        end_values = self._vector3(end_degrees, "end_degrees")
+        obj.rotation_euler = tuple(radians(value) for value in start_values)
         obj.keyframe_insert(data_path="rotation_euler", frame=start)
-        obj.rotation_euler = tuple(radians(float(v)) for v in end_degrees)
+        obj.rotation_euler = tuple(radians(value) for value in end_values)
         obj.keyframe_insert(data_path="rotation_euler", frame=end)
         self._set_interpolation(obj, interpolation, ("rotation_euler",))
 
@@ -590,9 +631,9 @@ class Studio:
     ) -> None:
         obj = self._object(name)
         start, end = self._animation_frames(start_frame, end_frame)
-        obj.scale = tuple(start_scale)
+        obj.scale = self._vector3(start_scale, "start_scale")
         obj.keyframe_insert(data_path="scale", frame=start)
-        obj.scale = tuple(end_scale)
+        obj.scale = self._vector3(end_scale, "end_scale")
         obj.keyframe_insert(data_path="scale", frame=end)
         self._set_interpolation(obj, interpolation, ("scale",))
 
@@ -607,12 +648,16 @@ class Studio:
             raise ValueError(f"Object is not a camera: {name}")
         start, end = self._animation_frames(start_frame, end_frame)
         camera.rotation_mode = "XYZ"
-        camera.location = tuple(start_location)
-        camera.rotation_euler = self._camera_rotation(start_location, start_target)
+        start_position = self._vector3(start_location, "start_location")
+        end_position = self._vector3(end_location, "end_location")
+        start_look_at = self._vector3(start_target, "start_target")
+        end_look_at = self._vector3(end_target, "end_target")
+        camera.location = start_position
+        camera.rotation_euler = self._camera_rotation(start_position, start_look_at)
         camera.keyframe_insert(data_path="location", frame=start)
         camera.keyframe_insert(data_path="rotation_euler", frame=start)
-        camera.location = tuple(end_location)
-        camera.rotation_euler = self._camera_rotation(end_location, end_target)
+        camera.location = end_position
+        camera.rotation_euler = self._camera_rotation(end_position, end_look_at)
         camera.keyframe_insert(data_path="location", frame=end)
         camera.keyframe_insert(data_path="rotation_euler", frame=end)
         self._set_interpolation(camera, interpolation, ("location", "rotation_euler"))
