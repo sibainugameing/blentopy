@@ -225,11 +225,26 @@ class RenderProcessLifecycleTests(unittest.TestCase):
                 self.returncode = -9
 
         process = StuckProcess()
-        with patch("blentopy.runner.subprocess.Popen", return_value=process):
-            with self.assertRaisesRegex(RenderError, "timeout"):
-                _stream_blender_process(
-                    ["blender"], env={}, timeout_seconds=1, progress_callback=None,
-                )
+
+        class SynchronousReaderThread:
+            def __init__(self, *, target, **_kwargs):
+                self.target = target
+
+            def start(self):
+                self.target()
+
+            def is_alive(self):
+                return False
+
+            def join(self, timeout=None):
+                return None
+
+        with patch("blentopy.runner.threading.Thread", SynchronousReaderThread):
+            with patch("blentopy.runner.subprocess.Popen", return_value=process):
+                with self.assertRaisesRegex(RenderError, "timeout"):
+                    _stream_blender_process(
+                        ["blender"], env={}, timeout_seconds=1, progress_callback=None,
+                    )
         self.assertTrue(process.terminated)
 
     def test_failed_render_preserves_existing_output_files(self):

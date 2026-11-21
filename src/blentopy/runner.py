@@ -71,7 +71,7 @@ def _find_compatible_blender(explicit: str | None = None) -> str:
     """Resolve Blender and reject versions older than the supported VSE baseline."""
     executable = find_blender(explicit)
     version = blender_version(executable)
-    match = re.search(r"Blender\s+(\d+)\.(\d+)(?:\.(\d+))?", version)
+    match = re.search(r"(?:Blender\s+)?(\d+)\.(\d+)(?:\.(\d+))?", version)
     if match is None:
         raise BlenderNotFoundError(
             f"Could not determine Blender's version from: {version!r}. "
