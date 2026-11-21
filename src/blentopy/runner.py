@@ -596,6 +596,115 @@ def _stream_blender_process(
             code="operation-cancelled",
         ) from None
 
+def _validate_staged_artifacts(staged_output: Path, staged_blend: Path, *, log: str = "") -> None:
+    """Reject truncated or misnamed artifacts before publishing either file."""
+    if not staged_output.is_file():
+        raise RenderError(f"MP4 output was not created: {staged_output}", log=log)
+    if staged_output.stat().st_size < 12:
+        raise RenderError(
+            f"MP4 output is empty or truncated: {staged_output} "
+            f"({staged_output.stat().st_size} bytes; expected at least 12).",
+            log=log,
+            code="invalid-mp4-artifact",
+        )
+    with staged_output.open("rb") as stream:
+        mp4_header = stream.read(12)
+    if len(mp4_header) < 12 or mp4_header[4:8] != b"ftyp":
+        raise RenderError(
+            f"Rendered output does not have a valid MP4/ISO-BMFF ftyp header: {staged_output}.",
+            log=log,
+            code="invalid-mp4-artifact",
+        )
+
+    if not staged_blend.is_file():
+        raise RenderError(f"Blend project was not created: {staged_blend}", log=log)
+    if staged_blend.stat().st_size < 7:
+        raise RenderError(
+            f"Blend project is empty or truncated: {staged_blend} "
+            f"({staged_blend.stat().st_size} bytes; expected at least 7).",
+            log=log,
+            code="invalid-blend-artifact",
+        )
+    with staged_blend.open("rb") as stream:
+        blend_header = stream.read(7)
+    if blend_header != b"BLENDER":
+        raise RenderError(
+            f"Saved project does not have a valid Blender file signature: {staged_blend}.",
+            log=log,
+            code="invalid-blend-artifact",
+        )
+
+
+def _publish_render_artifacts(
+    staged_output: Path,
+    staged_blend: Path,
+    output: Path,
+    blend: Path,
+) -> None:
+    """Publish the MP4/.blend pair with rollback if either replacement fails."""
+    token = uuid.uuid4().hex
+    backup_output = output.with_name(f".{output.name}.{token}.backup")
+    backup_blend = blend.with_name(f".{blend.name}.{token}.backup")
+    moved_output = False
+    moved_blend = False
+    published_output = False
+    published_blend = False
+
+    try:
+        if output.exists():
+            os.replace(output, backup_output)
+            moved_output = True
+        if blend.exists():
+            os.replace(blend, backup_blend)
+            moved_blend = True
+
+        os.replace(staged_output, output)
+        published_output = True
+        os.replace(staged_blend, blend)
+        published_blend = True
+    except OSError as exc:
+        rollback_errors: list[str] = []
+        for target, published in (
+            (blend, published_blend),
+            (output, published_output),
+        ):
+            if published:
+                try:
+                    target.unlink(missing_ok=True)
+                except OSError as rollback_exc:
+                    rollback_errors.append(f"could not remove new {target}: {rollback_exc}")
+        for backup, target, moved in (
+            (backup_blend, blend, moved_blend),
+            (backup_output, output, moved_output),
+        ):
+            if moved and backup.exists():
+                try:
+                    os.replace(backup, target)
+                except OSError as rollback_exc:
+                    rollback_errors.append(
+                        f"could not restore {target} from {backup}: {rollback_exc}"
+                    )
+        if rollback_errors:
+            raise RenderError(
+                "Publishing the render pair failed and rollback was incomplete. "
+                "Do not delete the backup files; they contain the previous project/output. "
+                + " | ".join(rollback_errors),
+                code="artifact-rollback-failed",
+            ) from exc
+        raise RenderError(
+            f"Could not publish the MP4/.blend output pair; previous files were restored: {exc}",
+            code="artifact-publish-failed",
+        ) from exc
+    else:
+        for backup in (backup_output, backup_blend):
+            try:
+                backup.unlink(missing_ok=True)
+            except OSError:
+                # The new pair is complete. A leftover backup is safer than
+                # turning a successful publication into an ambiguous failure.
+                pass
+
+
 def _scene_report_from_log(log: str) -> dict[str, object]:
     prefix = "BLENTOPY_SCENE_REPORT="
     for line in log.splitlines():
@@ -799,19 +908,11 @@ def render_script(
         if return_code != 0:
             raise RenderError(f"Blender failed with exit code {return_code}.", log=log)
 
-        if not staged_output.is_file():
-            raise RenderError(f"MP4 output was not created: {output}", log=log)
-        if staged_output.stat().st_size == 0:
-            raise RenderError(f"MP4 output is empty (0 bytes): {output}", log=log)
-        if not staged_blend.is_file():
-            raise RenderError(f"Blend project was not created: {blend}", log=log)
-        if staged_blend.stat().st_size == 0:
-            raise RenderError(f"Blend project is empty (0 bytes): {blend}", log=log)
+        _validate_staged_artifacts(staged_output, staged_blend, log=log)
 
-        # Publish only complete artifacts. Existing outputs remain untouched
-        # until both newly generated files have passed validation.
-        os.replace(staged_output, output)
-        os.replace(staged_blend, blend)
+        # Publish as a pair and restore both previous files if either
+        # replacement fails (including Windows file-sharing violations).
+        _publish_render_artifacts(staged_output, staged_blend, output, blend)
         return RenderResult(executable, output, blend, return_code, log)
     finally:
         staged_output.unlink(missing_ok=True)

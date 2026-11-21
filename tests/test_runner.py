@@ -17,6 +17,8 @@ from blentopy.runner import (
     _resolve_scene_paths,
     _locked_paths,
     _find_compatible_blender,
+    _validate_staged_artifacts,
+    _publish_render_artifacts,
     validate_render_settings,
 )
 
@@ -105,8 +107,8 @@ class RenderProgressTests(unittest.TestCase):
 
             def launch(_command, **kwargs):
                 env = kwargs["env"]
-                Path(env["BLENTOPY_OUTPUT"]).write_bytes(b"video")
-                Path(env["BLENTOPY_BLEND"]).write_bytes(b"project")
+                Path(env["BLENTOPY_OUTPUT"]).write_bytes(b"\\x00\\x00\\x00\\x18ftypisom0000")
+                Path(env["BLENTOPY_BLEND"]).write_bytes(b"BLENDER-v300")
                 return _StreamingRenderProcess()
 
             class SynchronousReaderThread:
@@ -198,8 +200,8 @@ class RenderProcessLifecycleTests(unittest.TestCase):
 
             def launch(_command, **kwargs):
                 env = kwargs["env"]
-                Path(env["BLENTOPY_OUTPUT"]).write_bytes(b"new video")
-                Path(env["BLENTOPY_BLEND"]).write_bytes(b"new project")
+                Path(env["BLENTOPY_OUTPUT"]).write_bytes(b"\\x00\\x00\\x00\\x18ftypisom0000")
+                Path(env["BLENTOPY_BLEND"]).write_bytes(b"BLENDER-v300")
                 return _StreamingRenderProcess()
 
             def broken_callback(_event):
@@ -261,6 +263,51 @@ class RenderProcessLifecycleTests(unittest.TestCase):
                     )
         self.assertTrue(process.terminated)
 
+
+    def test_artifact_pair_publish_failure_restores_previous_files(self):
+        with tempfile.TemporaryDirectory() as folder:
+            root = Path(folder)
+            output = root / "scene.mp4"
+            blend = root / "scene.blend"
+            staged_output = root / ".scene.staged.mp4"
+            staged_blend = root / ".scene.staged.blend"
+            output.write_bytes(b"previous video")
+            blend.write_bytes(b"previous project")
+            staged_output.write_bytes(b"\x00\x00\x00\x18ftypisom0000")
+            staged_blend.write_bytes(b"BLENDER-v300")
+
+            real_replace = os.replace
+
+            def fail_new_blend(source, destination):
+                if Path(source) == staged_blend and Path(destination) == blend:
+                    raise OSError("simulated sharing violation")
+                return real_replace(source, destination)
+
+            with patch("blentopy.runner.os.replace", side_effect=fail_new_blend):
+                with self.assertRaisesRegex(RenderError, "previous files were restored"):
+                    _publish_render_artifacts(
+                        staged_output, staged_blend, output, blend
+                    )
+
+            self.assertEqual(output.read_bytes(), b"previous video")
+            self.assertEqual(blend.read_bytes(), b"previous project")
+            self.assertFalse(any(path.suffix == ".backup" for path in root.iterdir()))
+
+    def test_artifact_headers_are_validated_before_publish(self):
+        with tempfile.TemporaryDirectory() as folder:
+            root = Path(folder)
+            output = root / "scene.mp4"
+            blend = root / "scene.blend"
+            output.write_bytes(b"not an mp4 container")
+            blend.write_bytes(b"BLENDER-v300")
+            with self.assertRaisesRegex(RenderError, "valid MP4"):
+                _validate_staged_artifacts(output, blend)
+
+            output.write_bytes(b"\x00\x00\x00\x18ftypisom0000")
+            blend.write_bytes(b"not a blend file")
+            with self.assertRaisesRegex(RenderError, "valid Blender file signature"):
+                _validate_staged_artifacts(output, blend)
+
     def test_failed_render_preserves_existing_output_files(self):
         with tempfile.TemporaryDirectory() as folder:
             root = Path(folder)
@@ -295,7 +342,7 @@ class RenderProcessLifecycleTests(unittest.TestCase):
             def launch(_command, **kwargs):
                 env = kwargs["env"]
                 Path(env["BLENTOPY_OUTPUT"]).write_bytes(b"")
-                Path(env["BLENTOPY_BLEND"]).write_bytes(b"new project")
+                Path(env["BLENTOPY_BLEND"]).write_bytes(b"BLENDER-v300")
                 return _StreamingRenderProcess()
 
             with patch("blentopy.runner._find_compatible_blender", return_value="/fake/Blender"):
