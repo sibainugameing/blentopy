@@ -175,6 +175,17 @@ def _resolve_scene_paths(
     if output.suffix.lower() != ".mp4":
         output = output.with_suffix(".mp4")
     blend = Path(blend_path).expanduser().resolve() if blend_path else output.with_suffix(".blend")
+    if blend.suffix.lower() != ".blend":
+        raise ValueError(f"blend_path must use the .blend extension: {blend}")
+    if len({source, output, blend}) != 3:
+        raise ValueError(
+            "File path collision: the source script, MP4 output, and .blend project "
+            "must all use different paths. Choose separate output paths to prevent data loss."
+        )
+    if output.exists() and output.is_dir():
+        raise ValueError(f"MP4 output path points to a directory: {output}")
+    if blend.exists() and blend.is_dir():
+        raise ValueError(f"Blend project path points to a directory: {blend}")
     output.parent.mkdir(parents=True, exist_ok=True)
     blend.parent.mkdir(parents=True, exist_ok=True)
     workspace_dir.mkdir(parents=True, exist_ok=True)
@@ -427,6 +438,8 @@ def edit_scene_script(
     project = Path(blend_path).expanduser().resolve(strict=True)
     if not project.is_file() or project.suffix.lower() != ".blend":
         raise ValueError(f"blend_path must point to an existing .blend file: {project}")
+    if source == project:
+        raise ValueError("The edit script and target .blend project must be different files.")
     workspace_dir = Path(workspace or source.parent).expanduser().resolve()
     workspace_dir.mkdir(parents=True, exist_ok=True)
     executable = find_blender(blender)

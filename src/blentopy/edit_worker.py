@@ -65,6 +65,15 @@ def main() -> int:
         print("BLENTOPY_SCENE_SNAPSHOT=" + json.dumps(snapshot, ensure_ascii=False), flush=True)
         print("BLENTOPY_SCENE_REPORT=" + json.dumps(report, ensure_ascii=False), flush=True)
 
+        # Inspection is read-only and may report an incomplete scene. Edits,
+        # however, must never publish a project that failed scene validation.
+        if mode == "edit" and not report.get("ok", False):
+            errors = "; ".join(str(item) for item in report.get("errors", []))
+            raise RuntimeError(
+                "Edited scene failed validation; the staged .blend will not be saved. "
+                + (errors or "Validation did not return ok=true.")
+            )
+
         if mode == "edit":
             for window in bpy.context.window_manager.windows:
                 window.scene = studio.blender_scene

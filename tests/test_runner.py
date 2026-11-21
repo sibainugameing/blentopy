@@ -13,6 +13,7 @@ from blentopy.runner import (
     preview_script,
     render_script,
     _stream_blender_process,
+    _resolve_scene_paths,
     validate_render_settings,
 )
 
@@ -49,6 +50,30 @@ class _ExitedProcess:
 
 
 class RenderSettingsTests(unittest.TestCase):
+    def test_rejects_source_output_and_blend_path_collisions(self):
+        with tempfile.TemporaryDirectory() as folder:
+            root = Path(folder)
+            script = root / "scene.py"
+            script.write_text('studio.add_cube("Cube")\\n', encoding="utf-8")
+            with self.assertRaisesRegex(ValueError, "File path collision"):
+                _resolve_scene_paths(
+                    script, script, root / "scene.blend", root / "workspace"
+                )
+            with self.assertRaisesRegex(ValueError, "different paths"):
+                _resolve_scene_paths(
+                    script, root / "scene.mp4", script, root / "workspace"
+                )
+
+    def test_rejects_non_blend_project_extension(self):
+        with tempfile.TemporaryDirectory() as folder:
+            root = Path(folder)
+            script = root / "scene.py"
+            script.write_text('studio.add_cube("Cube")\\n', encoding="utf-8")
+            with self.assertRaisesRegex(ValueError, ".blend extension"):
+                _resolve_scene_paths(
+                    script, root / "scene.mp4", root / "project.data", root / "workspace"
+                )
+
     def test_accepts_portrait_defaults(self):
         validate_render_settings(720, 1280, 30, 8)
 
