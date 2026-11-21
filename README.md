@@ -298,7 +298,7 @@ New scripts do not access bpy directly. The full authoring contract, including a
 
 ### Scene-script rules (0.2)
 
-- Prefer stable, descriptive object IDs such as "robot.head" and "camera.main".
+- Use stable, descriptive IDs for important objects such as "robot.head" and "camera.main". Omit IDs for repeated incidental meshes; blentopy assigns deterministic IDs automatically.
 - Define geometry with studio.geo and materials with studio.mat, then create objects through studio.scene.
 - Use Object3D handles and their position, rotation, scale, and visible properties instead of looking objects up by display name.
 - Prefer semantic placement with scene.place(), scene.attach(), scene.look_at(), and scene.frame() over manual coordinate calculations.
@@ -314,10 +314,10 @@ When you are not using MCP, you can ask an AI to generate a script with a prompt
 
 > Create a polished 8-second vertical 3D scene using blentopy 0.2. Use studio.scene, studio.geo, and studio.mat. Build an object hierarchy with stable IDs, use semantic placement and camera framing, create distinct PBR materials and key/fill/rim lighting, and animate with second-based motion tracks. Use if/else and bounded nested range() loops where useful. Do not use imports, bpy, functions, or unsupported Python. Return only a complete scene script.
 
-Save the generated code to **examples/my_scene.py**, then preview it:
+Save the generated code to **examples/my_scene.py**, then preview it. The repository also includes a ready-made AI-native example:
 
 ~~~bash
-blentopy preview examples/my_scene.py
+blentopy preview examples/ai_native_scene.py
 ~~~
 
 ## AI-native scene API (0.2)
@@ -352,7 +352,7 @@ rise.key(at=0, value=(0, 0, 1))
 rise.key(at=2, value=(0, 0, 3), ease="smooth")
 ~~~
 
-The first implementation includes reusable geometry/material specifications, mesh and group handles, transforms, parent-child relationships, semantic placement/alignment, camera framing, four light types, second-based transform tracks, and basic scene inspection. Custom meshes can be defined from vertices and polygon faces.
+The first implementation includes reusable geometry/material specifications, mesh and group handles, transforms, parent-child relationships, semantic placement/alignment, camera framing, four light types, second-based transform tracks, custom meshes, and basic scene inspection. Incidental repeated objects can omit IDs and receive deterministic per-run identifiers, avoiding generated string counters inside loops.
 
 The API is deliberately layered: use scene-level intent helpers for ordinary composition, Object3D handles for precise edits, and custom geometry only when the built-in shapes are insufficient. Use scene.update(target, ...) and scene.set_material(target, material) for targeted edits within the current script. Each separate render or preview invocation still starts a fresh scene; loading a previous .blend and applying diffs across separate AI turns is not implemented yet. This is not a complete physics solver or a replacement for all Blender modeling tools.
 
