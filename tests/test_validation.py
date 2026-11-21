@@ -158,6 +158,43 @@ for row in range(4):
                 with self.assertRaises(ScriptValidationError):
                     validate_script(source)
 
+
+    def test_rejects_forward_reference_and_branch_only_assignment(self):
+        with self.assertRaises(ScriptValidationError) as forward:
+            validate_script('studio.add_cube(name)\nname = "Cube"\n')
+        self.assertEqual(forward.exception.code, "undefined-name")
+
+        with self.assertRaises(ScriptValidationError) as branch:
+            validate_script(
+                'if True:\n'
+                '    name = "Cube"\n'
+                'studio.add_cube(name)\n'
+            )
+        self.assertEqual(branch.exception.code, "undefined-name")
+
+    def test_accepts_variable_assigned_in_both_branches(self):
+        validate_script(
+            'if True:\n'
+            '    name = "Cube A"\n'
+            'else:\n'
+            '    name = "Cube B"\n'
+            'studio.add_cube(name)\n'
+        )
+
+    def test_rejects_unknown_keyword_and_missing_required_api_arguments(self):
+        with self.assertRaises(ScriptValidationError) as keyword:
+            validate_script('studio.add_cube("Cube", unknown_option=True)\n')
+        self.assertEqual(keyword.exception.code, "invalid-api-arguments")
+
+        with self.assertRaises(ScriptValidationError) as missing:
+            validate_script('studio.add_camera()\n')
+        self.assertEqual(missing.exception.code, "invalid-api-arguments")
+
+    def test_rejects_known_literal_argument_type_mismatch(self):
+        with self.assertRaises(ScriptValidationError) as mismatch:
+            validate_script('studio.add_cube(123)\n')
+        self.assertEqual(mismatch.exception.code, "api-argument-type-mismatch")
+
     def test_limits_source_size(self):
         with self.assertRaises(ScriptValidationError):
             validate_script("#" + "x" * 100001)

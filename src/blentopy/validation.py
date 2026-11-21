@@ -3,7 +3,17 @@
 from __future__ import annotations
 
 import ast
+import inspect
 import math
+import types
+from collections.abc import Sequence as ABCSequence
+from typing import Any, get_args, get_origin, get_type_hints
+
+from .ai_native import (
+    AIStudio, GeometryFactory, GeometrySpec, MaterialFactory, MaterialSpec,
+    MotionAPI, MotionTrack, Object3D, SceneAPI, VectorProxy,
+)
+from .studio import Studio
 
 MAX_SCRIPT_CHARS = 100_000
 MAX_AST_NODES = 8_000
@@ -182,6 +192,250 @@ def _target_name(target: ast.AST) -> str | None:
         return target.id
     return None
 
+
+
+
+def _owner_type_for_method(owner_type: type | None) -> type | None:
+    if owner_type is AIStudio:
+        return Studio
+    return owner_type
+
+
+def _infer_expression_type(node: ast.AST, environment: dict[str, object]) -> object | None:
+    """Infer only types that are safe and useful for API argument diagnostics."""
+    if isinstance(node, ast.Constant):
+        return type(node.value)
+    if isinstance(node, ast.Name):
+        return environment.get(node.id)
+    if isinstance(node, (ast.Tuple, ast.List)):
+        return tuple if isinstance(node, ast.Tuple) else list
+    if isinstance(node, ast.Attribute):
+        owner = _infer_expression_type(node.value, environment)
+        if owner is AIStudio:
+            return {
+                "scene": SceneAPI,
+                "geo": GeometryFactory,
+                "mat": MaterialFactory,
+            }.get(node.attr)
+        if owner is Object3D and node.attr in {"position", "rotation", "scale"}:
+            return VectorProxy
+        if owner is types.ModuleType and node.attr in {"pi", "tau", "e"}:
+            return float
+        return None
+    if isinstance(node, ast.UnaryOp):
+        return _infer_expression_type(node.operand, environment)
+    if isinstance(node, ast.BinOp):
+        left = _infer_expression_type(node.left, environment)
+        right = _infer_expression_type(node.right, environment)
+        if left in {int, float} and right in {int, float}:
+            return float if float in {left, right} or isinstance(node.op, ast.Div) else int
+        return None
+    if isinstance(node, ast.Call):
+        if isinstance(node.func, ast.Name):
+            return range if node.func.id == "range" else None
+        if not isinstance(node.func, ast.Attribute):
+            return None
+        owner = _infer_expression_type(node.func.value, environment)
+        if owner is types.ModuleType:
+            callable_object = getattr(math, node.func.attr, None)
+        else:
+            resolved_owner = _owner_type_for_method(owner if isinstance(owner, type) else None)
+            callable_object = getattr(resolved_owner, node.func.attr, None) if resolved_owner else None
+        if callable_object is None:
+            return None
+        try:
+            return get_type_hints(callable_object).get("return")
+        except (NameError, TypeError, ValueError):
+            return getattr(getattr(callable_object, "__annotations__", {}), "get", lambda _key: None)("return")
+    return None
+
+
+def _is_argument_type_compatible(actual: object | None, expected: object) -> bool:
+    if actual is None or expected in {inspect.Signature.empty, Any}:
+        return True
+    origin = get_origin(expected)
+    arguments = get_args(expected)
+    if origin in {types.UnionType, __import__("typing").Union}:
+        return any(_is_argument_type_compatible(actual, item) for item in arguments)
+    if origin in {ABCSequence, list, tuple}:
+        return actual in {list, tuple, range}
+    if expected is float:
+        return actual in {int, float}
+    if expected is int:
+        return actual is int
+    if expected is bool:
+        return actual is bool
+    if expected in {str, type(None)}:
+        return actual is expected
+    if isinstance(expected, type) and isinstance(actual, type):
+        try:
+            return issubclass(actual, expected)
+        except TypeError:
+            return True
+    return True
+
+
+def _call_signature(node: ast.Call, environment: dict[str, object]):
+    if not isinstance(node.func, ast.Attribute):
+        return None, None
+    owner = _infer_expression_type(node.func.value, environment)
+    if owner is types.ModuleType:
+        method = getattr(math, node.func.attr, None)
+        return method, method
+    owner_type = _owner_type_for_method(owner if isinstance(owner, type) else None)
+    if owner_type is None:
+        return None, None
+    method = getattr(owner_type, node.func.attr, None)
+    return method, method
+
+
+def _validate_call_arguments(
+    node: ast.Call,
+    environment: dict[str, object],
+    fail,
+    source: str,
+) -> None:
+    method, callable_object = _call_signature(node, environment)
+    if callable_object is None:
+        return
+    try:
+        call_signature = inspect.signature(callable_object)
+    except (TypeError, ValueError):
+        return
+
+    parameters = list(call_signature.parameters.values())
+    if parameters and parameters[0].name == "self":
+        parameters = parameters[1:]
+        call_signature = call_signature.replace(parameters=parameters)
+
+    keyword_values = {
+        keyword.arg: keyword.value
+        for keyword in node.keywords
+        if keyword.arg is not None
+    }
+    try:
+        call_signature.bind(
+            *([None] * len(node.args)),
+            **{name: None for name in keyword_values},
+        )
+    except TypeError as exc:
+        expression = ast.get_source_segment(source, node.func) or "API call"
+        fail(
+            node,
+            f"Invalid arguments for {expression}(): {exc}",
+            suggestion=f"Use the documented argument names and signature: {expression}{call_signature}.",
+            code="invalid-api-arguments",
+        )
+
+    try:
+        annotations = get_type_hints(method)
+    except (NameError, TypeError, ValueError):
+        annotations = getattr(method, "__annotations__", {})
+
+    values: dict[str, ast.AST] = {}
+    positional_parameters = [
+        parameter for parameter in parameters
+        if parameter.kind in {
+            inspect.Parameter.POSITIONAL_ONLY,
+            inspect.Parameter.POSITIONAL_OR_KEYWORD,
+        }
+    ]
+    for index, argument in enumerate(node.args):
+        if index < len(positional_parameters):
+            values[positional_parameters[index].name] = argument
+    values.update(keyword_values)
+
+    for parameter_name, argument in values.items():
+        expected = annotations.get(parameter_name)
+        if expected is None or isinstance(expected, str):
+            continue
+        actual = _infer_expression_type(argument, environment)
+        if not _is_argument_type_compatible(actual, expected):
+            expression = ast.get_source_segment(source, node.func) or "API call"
+            fail(
+                argument,
+                f"Argument '{parameter_name}' for {expression}() has an incompatible type.",
+                suggestion=(
+                    f"Expected {expected!r}; received {actual.__name__ if isinstance(actual, type) else actual!r}. "
+                    "Check the method signature in docs/AI_SYSTEM_PROMPT.md."
+                ),
+                code="api-argument-type-mismatch",
+            )
+
+
+def _validate_dataflow(tree: ast.Module, fail, source: str) -> None:
+    """Reject forward references and names that are not defined on every path."""
+    environment: dict[str, object] = {
+        "studio": AIStudio,
+        "math": types.ModuleType,
+        "range": range,
+    }
+
+    def check_expression(expression: ast.AST, current: dict[str, object]) -> None:
+        for child in ast.walk(expression):
+            if isinstance(child, ast.Name) and isinstance(child.ctx, ast.Load):
+                if child.id not in current:
+                    fail(
+                        child,
+                        f"Name '{child.id}' is used before it is assigned or is not defined on every path.",
+                        suggestion="Assign the variable before use, and assign it in every branch where it is later read.",
+                        code="undefined-name",
+                    )
+            elif isinstance(child, ast.Call):
+                _validate_call_arguments(child, current, fail, source)
+
+    def merge_branches(
+        before: dict[str, object],
+        first: dict[str, object],
+        second: dict[str, object],
+    ) -> dict[str, object]:
+        merged: dict[str, object] = {}
+        for name in first.keys() & second.keys():
+            left, right = first[name], second[name]
+            merged[name] = left if left == right else None
+        # Preserve incoming types even when a branch refines a variable differently.
+        for name in before:
+            if name in merged and merged[name] is None:
+                merged[name] = before[name]
+        return merged
+
+    def visit_block(statements: list[ast.stmt], current: dict[str, object]) -> dict[str, object]:
+        state = dict(current)
+        for statement in statements:
+            if isinstance(statement, ast.Assign):
+                check_expression(statement.value, state)
+                value_type = _infer_expression_type(statement.value, state)
+                for target in statement.targets:
+                    if isinstance(target, ast.Name):
+                        state[target.id] = value_type
+                    elif isinstance(target, ast.Attribute):
+                        check_expression(target.value, state)
+            elif isinstance(statement, ast.AugAssign):
+                if isinstance(statement.target, ast.Name) and statement.target.id not in state:
+                    fail(
+                        statement.target,
+                        f"Variable '{statement.target.id}' is incremented before it is assigned.",
+                        suggestion="Initialize the variable before using +=, -=, *=, or another augmented assignment.",
+                        code="undefined-name",
+                    )
+                check_expression(statement.value, state)
+            elif isinstance(statement, ast.Expr):
+                check_expression(statement.value, state)
+            elif isinstance(statement, ast.If):
+                check_expression(statement.test, state)
+                first = visit_block(statement.body, dict(state))
+                second = visit_block(statement.orelse, dict(state)) if statement.orelse else dict(state)
+                state = merge_branches(state, first, second)
+            elif isinstance(statement, ast.For):
+                check_expression(statement.iter, state)
+                loop_state = dict(state)
+                if isinstance(statement.target, ast.Name):
+                    loop_state[statement.target.id] = int
+                visit_block(statement.body, loop_state)
+                # A loop can execute zero times; assignments in its body are not definite.
+        return state
+
+    visit_block(tree.body, environment)
 
 def validate_script(source: str) -> ast.Module:
     """Parse and validate a scene script before executing it inside Blender.
@@ -413,4 +667,5 @@ def validate_script(source: str) -> ast.Module:
             if isinstance(node.value, float) and not math.isfinite(node.value):
                 raise ScriptValidationError("Non-finite numeric literals are not allowed.")
 
+    _validate_dataflow(tree, fail, source)
     return tree
