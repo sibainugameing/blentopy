@@ -354,7 +354,7 @@ rise.key(at=2, value=(0, 0, 3), ease="smooth")
 
 The first implementation includes reusable geometry/material specifications, mesh and group handles, transforms, parent-child relationships, semantic placement/alignment, camera framing, four light types, second-based transform tracks, and basic scene inspection. Custom meshes can be defined from vertices and polygon faces.
 
-The API is deliberately layered: use scene-level intent helpers for ordinary composition, Object3D handles for precise edits, and custom geometry only when the built-in shapes are insufficient. This is not a complete physics solver or a replacement for all Blender modeling tools.
+The API is deliberately layered: use scene-level intent helpers for ordinary composition, Object3D handles for precise edits, and custom geometry only when the built-in shapes are insufficient. Use scene.update(target, ...) and scene.set_material(target, material) for targeted edits within the current script. Each separate render or preview invocation still starts a fresh scene; loading a previous .blend and applying diffs across separate AI turns is not implemented yet. This is not a complete physics solver or a replacement for all Blender modeling tools.
 
 See [docs/AI_SYSTEM_PROMPT.md](docs/AI_SYSTEM_PROMPT.md) for the authoritative API reference and scripting contract.
 
@@ -809,6 +809,7 @@ The validator rejects imports, raw bpy access, private/dunder attributes, arbitr
 - Text-to-speech, music generation, and image generation require separate tools.
 - Advanced modeling, rigging, and character workflows are not implemented.
 - Automatic AI retries and error repair are not implemented.
+- Persistent incremental editing across separate render/preview invocations is not implemented; each invocation starts from a fresh scene.
 - Blender's VSE API can differ between Blender versions and requires compatibility testing.
 - GUI preview and rendering still need to be verified on the target machine and Blender installation.
 
