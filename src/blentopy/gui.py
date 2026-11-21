@@ -115,6 +115,7 @@ class BlentopyGUI:
         self.fps_var = tk.StringVar(value="30")
         self.duration_var = tk.StringVar(value="8")
         self.timeout_var = tk.StringVar(value="3600")
+        self.startup_timeout_var = tk.StringVar(value="120")
         self.status_var = tk.StringVar(value="Ready — open or paste a Python scene script.")
 
         self._build_widgets()
@@ -149,7 +150,7 @@ class BlentopyGUI:
         files.grid(row=1, column=0, sticky="ew", pady=(0, 8))
         files.columnconfigure(1, weight=1)
         self.ttk.Label(files, text="Python file").grid(row=0, column=0, sticky="w")
-        self.ttk.Entry(files, textvariable=self.script_var).grid(
+        self.ttk.Entry(files, textvariable=self.script_var, state="readonly").grid(
             row=0, column=1, sticky="ew", padx=6
         )
         self.ttk.Button(files, text="Open…", command=self.open_script).grid(
@@ -164,7 +165,7 @@ class BlentopyGUI:
 
         settings = self.ttk.LabelFrame(outer, text="CLI options", padding=8)
         settings.grid(row=2, column=0, sticky="ew", pady=(0, 8))
-        for column in (1, 3, 5):
+        for column in range(1, 12, 2):
             settings.columnconfigure(column, weight=1)
 
         self._setting_row(
@@ -189,7 +190,8 @@ class BlentopyGUI:
             ("Height", self.height_var),
             ("FPS", self.fps_var),
             ("Duration (s)", self.duration_var),
-            ("Timeout (s)", self.timeout_var),
+            ("Render timeout (s)", self.timeout_var),
+            ("Preview startup wait (s)", self.startup_timeout_var),
         )
         for index, (label, variable) in enumerate(number_fields):
             column = index * 2
@@ -462,7 +464,10 @@ class BlentopyGUI:
                 "height": self._integer(self.height_var, "Height"),
                 "fps": self._integer(self.fps_var, "FPS"),
                 "duration": self._integer(self.duration_var, "Duration"),
-                "timeout": self._integer(self.timeout_var, "Timeout"),
+                "timeout": self._integer(self.timeout_var, "Render timeout"),
+                "startup_timeout": self._integer(
+                    self.startup_timeout_var, "Preview startup wait"
+                ),
             }
             if action == "render":
                 options["output"] = self.output_var.get().strip() or (
