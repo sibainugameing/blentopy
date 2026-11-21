@@ -175,6 +175,24 @@ Colors accept hex strings or RGB/RGBA numeric values from 0 to 1. PBR roughness,
 
 Use different roughness values for metal, plastic, ceramic, fabric-like, and painted surfaces. Avoid making every material fully metallic or highly reflective. Emission should be an accent, not a substitute for lighting.
 
+
+## 6.1 Procedural repetition
+
+Use omitted IDs for incidental repeated objects. The generated ID is deterministic within the current script run, so no string formatting or counter conversion is needed in the AI-authored script.
+
+~~~python
+for row in range(4):
+    for column in range(6):
+        bead = scene.mesh(
+            geometry=geo.sphere(radius=0.06, segments=16, rings=8),
+            material=mat.emissive(color="#32BFFF", strength=0.5),
+            role="decoration",
+        )
+        bead.position.set((column * 0.35 - 0.9, row * 0.35, 0.2))
+~~~
+
+Use explicit IDs for hero objects and components that need stable references. Auto IDs are intended for repeated details, particles, tiles, and other incidental geometry.
+
 ## 7. Objects and scene graph
 
 ### Create mesh objects and surfaces
@@ -194,14 +212,15 @@ ground = scene.surface(
 )
 ~~~
 
-- scene.mesh(id, geometry, material=None, role=None)
-- scene.surface(id, size=(10, 10), material=None, role="environment")
-- scene.group(id, children=(), role=None)
+- scene.mesh(id=None, geometry=..., material=None, role=None); geometry is required
+- scene.surface(id=None, size=(10, 10), material=None, role="environment")
+- scene.group(id=None, children=(), role=None)
 - scene.add(object) reparents an object handle to the scene root.
 - scene.update(target, ...) changes selected transform, visibility, material, or role properties.
 - scene.set_material(target, material) replaces a mesh material.
 - scene.remove(object_or_id) removes an object.
-- Object IDs must be unique and should be descriptive, such as robot.head, car.wheel.front_left, or camera.closeup.
+- Explicit object IDs must be unique and should be descriptive, such as robot.head, car.wheel.front_left, or camera.closeup.
+- IDs are optional for incidental objects. When omitted, blentopy assigns deterministic per-type IDs such as mesh.0001, surface.0001, group.0001, camera.0001, and light.0001. These IDs are stable within one script execution, but may shift if earlier generated objects are inserted or removed. Use explicit IDs for important objects that need later references, animation, or targeted updates.
 - Use role="hero" for the primary subject, role="environment" for environment elements, and meaningful roles for other important objects.
 
 ### Groups and parenting
@@ -309,7 +328,7 @@ orthographic = scene.camera(
 )
 ~~~
 
-scene.camera(id, projection="perspective", lens=50, position=(0, -10, 4), target=(0, 0, 0), ortho_scale=8)
+scene.camera(id=None, projection="perspective", lens=50, position=(0, -10, 4), target=(0, 0, 0), ortho_scale=8)
 
 The created camera becomes the active camera. scene.frame() is usually preferable to guessing camera distance.
 
@@ -327,7 +346,7 @@ key = scene.light(
 )
 ~~~
 
-scene.light(id, type="area", target=(0, 0, 0), position=(4, -5, 7), color="#FFFFFF", energy=1200, size=4)
+scene.light(id=None, type="area", target=(0, 0, 0), position=(4, -5, 7), color="#FFFFFF", energy=1200, size=4)
 
 Light types: area, point, spot, directional. Directional lights map to Blender Sun lights. Area lights use size; spot lights use a default 45-degree cone. Use a purposeful key/fill/rim arrangement and ensure lights illuminate the actual subject.
 
