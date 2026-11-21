@@ -38,7 +38,7 @@ blentopy is not an AI model and does not call a hosted AI API. An MCP-capable ch
 - Configure PBR, glass/transmission, toon, metallic, rough, coated, emissive, image-textured, and procedural-noise materials.
 - Load workspace-local HDR/EXR environments; configure Eevee/Cycles, depth of field, transparency, motion blur, and compositor effects.
 - Import and export GLB/glTF, OBJ, FBX, STL, PLY, and USD models; use linked-data instances for efficient repeated objects.
-- Build repeated scene details with bounded loops and arithmetic.
+- Build repeated scene details with normal Python loops, comprehensions, and helper functions.
 - Use an AI-native scene graph with reusable geometry/material specs, object handles, groups, semantic placement, camera framing, custom meshes, and second-based animation tracks.
 - Create editable curves and 3D text, duplicate objects, and use bevel, subdivision, solidify, mirror, array, and Boolean modifiers.
 - Inspect and incrementally edit an existing .blend across AI turns without rebuilding the full scene.
@@ -51,8 +51,8 @@ blentopy is not an AI model and does not call a hosted AI API. An MCP-capable ch
 
 ### Not supported yet
 
-- Automatically generating detailed 3D models or characters.
-- Production character rigging, automatic skin weights, walk cycles, or motion capture (basic armatures, rigid-prop binding, and rigid bodies are supported).
+- Fully automatic production-quality 3D modelling or character authoring without human review.
+- Production character rigging, automatic skin weights, walk cycles, or motion capture are not wrapped as one-click facade features. Blender-native cloth, soft-body, fluid, particle, force-field, and rigid-body systems are accessible through bpy.
 - Generating narration, sound effects, or music.
 - Free-form image understanding and image-to-model generation.
 - Automatic AI diagnosis, repair, and retry after a scene-generation error.
@@ -343,12 +343,12 @@ The percentage is based on completed output frames, not elapsed time or GPU tile
 New scripts should use the AI-native scene API. The legacy Studio API remains supported for existing scripts.
 
 The script receives:
-- studio.scene: scene graph, Object3D handles, spatial helpers, camera, lighting, motion, and inspection.
-- studio.geo: reusable geometry specifications.
-- studio.mat: reusable PBR, emissive, physical, glass, toon, image-texture, and procedural-noise material specifications.
-- math and runtime-bounded range() and sequence iteration.
+- studio: the blentopy convenience API for scene graph, geometry, materials, transforms, animation, and inspection.
+- bpy: Blender's complete Python API.
+- math: Python's standard math module.
+- mathutils: Blender's mathutils module.
 
-New scripts do not access bpy directly. The full authoring contract, including all methods and accepted Python syntax, is documented in [docs/AI_SYSTEM_PROMPT.md](docs/AI_SYSTEM_PROMPT.md).
+Normal Python built-ins, imports, functions, classes, comprehensions, generators, loops, exception handling, and method chaining are available. Use the facade when convenient and call bpy directly for physics, nodes, modifiers, constraints, drivers, and any feature not wrapped by the facade. The full authoring and physics guide is documented in [docs/AI_SYSTEM_PROMPT.md](docs/AI_SYSTEM_PROMPT.md).
 
 ### Scene-script rules (0.2)
 
@@ -358,15 +358,15 @@ New scripts do not access bpy directly. The full authoring contract, including a
 - Prefer semantic placement with scene.place(), scene.attach(), scene.look_at(), and scene.frame() over manual coordinate calculations.
 - Create a controller with motion = scene.motion(object), then use motion.track("position" | "rotation" | "scale") and keyframes measured in seconds.
 - Rotation values use radians in the new API. Legacy animate_rotation() continues to accept degrees.
-- Scene scripts support assignments, if/elif/else, comparisons, boolean expressions, range() with integer variables/arithmetic, bounded iteration over lists, tuples, or scene.find() results, and safe indexing/slicing of recognized containers.
-- Each loop is limited to 128 iterations; nesting is limited to three levels; total actual iterations are limited to 4,096, with a 50,000 expanded-AST-work budget.
-- Imports, raw bpy, arbitrary builtins, filesystem access, shell commands, network access, while loops, function definitions, and private attribute access are not supported.
+- Scene scripts are ordinary Blender Python; there is no custom grammar, API allowlist, AST whitelist, or per-loop iteration cap.
+- The syntax preflight catches syntax errors and rejects only empty or oversized input. The runner applies an operation timeout and validates the resulting scene/artifacts.
+- Scripts execute with the capabilities of the Blender process. This is not a security sandbox; run only trusted scripts and avoid touching unrelated user files.
 
 ### Prompting an AI to create a scene
 
 When you are not using MCP, you can ask an AI to generate a script with a prompt such as:
 
-> Create a polished 8-second vertical 3D scene using blentopy 0.2. Use studio.scene, studio.geo, and studio.mat. Build an object hierarchy with stable IDs, use semantic placement and camera framing, create distinct PBR materials and key/fill/rim lighting, and animate with second-based motion tracks. Use if/else, range(count), and bounded iteration over scene.find(role=...) results where useful. Do not use imports, bpy, functions, or unsupported Python. Return only a complete scene script.
+> Create a polished 8-second vertical 3D scene using blentopy. Use studio.scene, studio.geo, and studio.mat where they make authoring easier, but use normal Blender Python (bpy and mathutils) for any missing feature. You may use imports, helper functions, classes, comprehensions, standard Python built-ins, loops, and Blender operators. Build a deliberate object hierarchy, materials, lighting, animation, and physics where appropriate. Return a complete runnable scene script.
 
 Save the generated code to **examples/my_scene.py**, then preview it. The repository also includes a ready-made AI-native example:
 
@@ -430,7 +430,7 @@ scene.update(hero, position=(0.5, 0, 1.2), scale=(1.1, 1.1, 1.1))
 scene.bevel(hero, width=0.04, segments=4)
 ```
 
-The MCP editing tools accept only .blend projects inside the configured `BLENTOPY_WORKSPACE`. Edit scripts use the same restricted scene language as normal scene generation; raw `bpy` and general Python execution remain unavailable.
+The MCP editing tools accept only .blend projects inside the configured `BLENTOPY_WORKSPACE`. Edit scripts use the same full Blender Python runtime as scene generation, including direct bpy and mathutils access. The workspace restriction applies to the project path handled by the MCP tool; it is not a sandbox around Python code.
 
 ## Expanded modeling API
 
@@ -658,12 +658,7 @@ All transform animation methods accept **BEZIER**, **LINEAR**, or **CONSTANT** i
 
 ### Math helpers
 
-The following constants and functions are exposed through **math**:
-
-- Constants: **math.pi**, **math.tau**, **math.e**
-- Functions: **math.sin**, **math.cos**, **math.tan**, **math.radians**, **math.degrees**, **math.sqrt**
-
-The validator allows assignments, conditionals, comparisons, boolean expressions, basic arithmetic, range() with integer expressions, bounded loops over range(), lists, tuples, or scene.find() results, and safe indexing/slicing of recognized containers. Loops are limited to 128 iterations each, three nested levels, 4,096 actual iterations total, and 50,000 expanded-AST-work units. Function definitions, unbounded loops, imports, and arbitrary builtins remain unsupported. range() is the only exposed built-in call and is available only as a for-loop iterator.
+Python's complete math module is available. Blender's mathutils module is also available for Vector, Euler, Quaternion, and Matrix operations. The script parser checks Python syntax only; normal built-ins, imports, loops, functions, comprehensions, and Blender API calls are supported.
 
 ## Using audio
 
@@ -900,7 +895,7 @@ track = motion.track("rotation")
 track = scene.motion(hero).track("rotation")
 ```
 
-Store the returned track in a variable before calling `track.key(...)`. Other method-call chains are not supported.
+Normal Python method chaining is supported. Store intermediate objects in variables when doing so improves readability or makes diagnostics easier.
 
 For example, the following is not allowed:
 
@@ -943,13 +938,13 @@ Actual GUI preview and MP4 rendering require an installed Blender executable. GU
 
 ## Security model
 
-Scene generation is also subject to hard resource budgets: 1,000 scene objects, 300,000 estimated post-modifier polygons, and 1,500 modifiers. The polygon estimate accounts for common geometry-amplifying modifiers (Subdivision, Array, Mirror, Solidify, Bevel, Boolean) before the next operation is created. It is deliberately conservative and is not a substitute for monitoring system memory on complex external assets.
+The studio.scene convenience API applies budgets of 1,000 objects, 300,000 estimated post-modifier polygons, and 1,500 modifiers to calls made through that facade. Direct bpy operations use Blender itself and can bypass those estimates. Monitor memory use, polygon count, simulation cache size, and render time when using native APIs.
 
-Scene scripts run in a restricted Python language and receive only the blentopy API, a limited math namespace, and runtime-bounded iteration. The validator allows documented API calls, simple variables, approved object property assignments, lists, tuples, dictionaries, arithmetic, comparisons, boolean expressions, conditionals, and bounded loops over range(), lists, tuples, or scene.find() results.
+Scene scripts are standard Python programs executed in Blender's Python runtime. The syntax preflight parses Python and enforces a generous source-size limit; it does not restrict imports, built-ins, control flow, attribute access, private names, or Blender API methods. The script receives bpy, math, mathutils, studio, and the complete normal Python built-ins.
 
-The validator rejects imports, raw bpy access, private/dunder attributes, arbitrary builtins, filesystem/process/network operations, while loops, function and class definitions, comprehensions, non-integer range() bounds, and undocumented API calls. Loops are limited to 128 iterations each, three nested levels, 4,096 actual iterations total, and 50,000 expanded-AST-work units.
+The studio.scene convenience API applies budgets of 1,000 objects, 300,000 estimated post-modifier polygons, and 1,500 modifiers to calls made through that facade. Direct bpy operations can bypass those estimates because they use Blender itself. Monitor memory use, polygon count, simulation cache size, and render time when using native APIs.
 
-**These restrictions are not an operating-system sandbox.** Blender and its dependencies still run with the permissions of the local user. Do not treat untrusted .blend files, scripts, or source assets as safe.
+The Blender operation runs in a separate process with a runner timeout. Output artifacts are staged and checked before publication, and the resulting scene is inspected after execution. Those mechanisms protect the workflow from common failed renders and accidental output replacement; they are not a security sandbox. Blender Python can access files and modules using the permissions of the local user. Do not execute untrusted scripts or .blend files.
 
 ## Current limitations
 
