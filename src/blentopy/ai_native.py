@@ -1823,38 +1823,49 @@ class SceneAPI(SceneFeatureMixin):
         return MotionAPI(self, target)
 
     def inspect(self) -> dict[str, Any]:
-        usage = scene_resource_usage(self._backend.scene)
+        scene = self._backend.scene
+        usage = scene_resource_usage(scene)
+        registered = {
+            item._object.name: item
+            for item in self._objects.values()
+        }
+        objects: list[dict[str, Any]] = []
+        for obj in scene.objects:
+            item = registered.get(obj.name)
+            data = getattr(obj, "data", None)
+            materials = getattr(data, "materials", ()) if data is not None else ()
+            objects.append({
+                "id": item.id if item is not None else str(obj.get("blentopy_id", obj.name)),
+                "name": obj.name,
+                "kind": item.kind if item is not None else obj.type.lower(),
+                "role": item.role if item is not None else obj.get("blentopy_role"),
+                "position": tuple(float(part) for part in obj.matrix_world.translation),
+                "rotation": tuple(float(part) for part in obj.rotation_euler),
+                "scale": tuple(float(part) for part in obj.scale),
+                "dimensions": tuple(float(part) for part in obj.dimensions),
+                "parent": obj.parent.name if obj.parent else None,
+                "visible": (
+                    item.visible if item is not None
+                    else not obj.hide_render and not obj.hide_viewport
+                ),
+                "modifiers": [
+                    {"name": modifier.name, "type": modifier.type}
+                    for modifier in obj.modifiers
+                ],
+                "materials": [
+                    material.name for material in materials if material is not None
+                ],
+                "native_blender_object": item is None,
+            })
         return {
-            "object_count": len(self._objects),
+            "object_count": len(scene.objects),
+            "registered_object_count": len(self._objects),
             "resource_usage": usage,
             "camera": (
                 self._camera.id if self._camera else
-                (self._backend.scene.camera.name if self._backend.scene.camera else None)
+                (scene.camera.name if scene.camera else None)
             ),
-            "objects": [
-                {
-                    "id": item.id,
-                    "name": item._object.name,
-                    "kind": item.kind,
-                    "role": item.role,
-                    "position": tuple(float(part) for part in item._object.matrix_world.translation),
-                    "rotation": tuple(float(part) for part in item._object.rotation_euler),
-                    "scale": tuple(float(part) for part in item._object.scale),
-                    "dimensions": tuple(float(part) for part in item._object.dimensions),
-                    "parent": item._object.parent.name if item._object.parent else None,
-                    "visible": item.visible,
-                    "modifiers": [
-                        {"name": modifier.name, "type": modifier.type}
-                        for modifier in item._object.modifiers
-                    ],
-                    "materials": [
-                        material.name
-                        for material in getattr(item._object.data, "materials", ())
-                        if material is not None
-                    ],
-                }
-                for item in self._objects.values()
-            ],
+            "objects": objects,
         }
 
     def validate(self) -> dict[str, Any]:
@@ -1866,8 +1877,10 @@ class SceneAPI(SceneFeatureMixin):
         limits = {"objects": 1_000, "polygons": 300_000, "modifiers": 1_500}
         for resource, value in usage.items():
             if value > limits[resource]:
-                errors.append(
-                    f"Scene {resource} limit exceeded: {value:,} > {limits[resource]:,}."
+                warnings.append(
+                    f"Scene {resource} usage is {value:,}, above the convenience API "
+                    f"budget of {limits[resource]:,}. Native bpy operations are not "
+                    "blocked by this facade budget; check memory, cache size, and render time."
                 )
 
         render = scene.render
@@ -1948,9 +1961,16 @@ class SceneAPI(SceneFeatureMixin):
                 if not all(math.isfinite(value) for value in matrix_values):
                     errors.append(f"Object '{item.id}' has a non-finite world transform.")
 
-        heroes = [item for item in self._objects.values() if item.role == "hero"]
+        registered_heroes = [
+            item._object for item in self._objects.values() if item.role == "hero"
+        ]
+        native_heroes = [
+            obj for obj in scene.objects
+            if obj.get("blentopy_role") == "hero" and obj not in registered_heroes
+        ]
+        heroes = registered_heroes + native_heroes
         if not heroes:
-            warnings.append("No object has role='hero'.")
+            warnings.append("No object has role='hero' (set hero['blentopy_role'] = 'hero' for native bpy objects).")
         elif camera is not None and camera.type == "CAMERA":
             try:
                 from bpy_extras.object_utils import world_to_camera_view
@@ -1958,7 +1978,7 @@ class SceneAPI(SceneFeatureMixin):
                 depsgraph = self._backend._bpy.context.evaluated_depsgraph_get()
                 visible_hero = False
                 for hero in heroes:
-                    evaluated = hero._object.evaluated_get(depsgraph)
+                    evaluated = hero.evaluated_get(depsgraph)
                     points = [
                         evaluated.matrix_world @ self._backend._Vector(corner)
                         for corner in evaluated.bound_box
