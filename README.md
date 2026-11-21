@@ -346,7 +346,7 @@ The script receives:
 - studio.scene: scene graph, Object3D handles, spatial helpers, camera, lighting, motion, and inspection.
 - studio.geo: reusable geometry specifications.
 - studio.mat: reusable PBR, emissive, physical, glass, toon, image-texture, and procedural-noise material specifications.
-- math and a statically bounded range() iterator.
+- math and runtime-bounded range() and sequence iteration.
 
 New scripts do not access bpy directly. The full authoring contract, including all methods and accepted Python syntax, is documented in [docs/AI_SYSTEM_PROMPT.md](docs/AI_SYSTEM_PROMPT.md).
 
@@ -358,15 +358,15 @@ New scripts do not access bpy directly. The full authoring contract, including a
 - Prefer semantic placement with scene.place(), scene.attach(), scene.look_at(), and scene.frame() over manual coordinate calculations.
 - Create a controller with motion = scene.motion(object), then use motion.track("position" | "rotation" | "scale") and keyframes measured in seconds.
 - Rotation values use radians in the new API. Legacy animate_rotation() continues to accept degrees.
-- Scene scripts support assignments, if/elif/else, comparisons, boolean expressions, and bounded nested range() loops.
-- Each loop is limited to 128 iterations; nesting is limited to three levels; total expanded loop iterations are limited to 4,096.
+- Scene scripts support assignments, if/elif/else, comparisons, boolean expressions, range() with integer variables/arithmetic, and bounded iteration over lists, tuples, or scene.find() results.
+- Each loop is limited to 128 iterations; nesting is limited to three levels; total actual iterations are limited to 4,096, with a 50,000 expanded-AST-work budget.
 - Imports, raw bpy, arbitrary builtins, filesystem access, shell commands, network access, while loops, function definitions, and private attribute access are not supported.
 
 ### Prompting an AI to create a scene
 
 When you are not using MCP, you can ask an AI to generate a script with a prompt such as:
 
-> Create a polished 8-second vertical 3D scene using blentopy 0.2. Use studio.scene, studio.geo, and studio.mat. Build an object hierarchy with stable IDs, use semantic placement and camera framing, create distinct PBR materials and key/fill/rim lighting, and animate with second-based motion tracks. Use if/else and bounded nested range() loops where useful. Do not use imports, bpy, functions, or unsupported Python. Return only a complete scene script.
+> Create a polished 8-second vertical 3D scene using blentopy 0.2. Use studio.scene, studio.geo, and studio.mat. Build an object hierarchy with stable IDs, use semantic placement and camera framing, create distinct PBR materials and key/fill/rim lighting, and animate with second-based motion tracks. Use if/else, range(count), and bounded iteration over scene.find(role=...) results where useful. Do not use imports, bpy, functions, or unsupported Python. Return only a complete scene script.
 
 Save the generated code to **examples/my_scene.py**, then preview it. The repository also includes a ready-made AI-native example:
 
@@ -663,7 +663,7 @@ The following constants and functions are exposed through **math**:
 - Constants: **math.pi**, **math.tau**, **math.e**
 - Functions: **math.sin**, **math.cos**, **math.tan**, **math.radians**, **math.degrees**, **math.sqrt**
 
-The validator allows assignments, conditionals, comparisons, boolean expressions, basic arithmetic, and bounded nested range() loops. Nested loops are limited to three levels and 4,096 expanded iterations in total. Function definitions, unbounded loops, imports, and arbitrary builtins remain unsupported. The only builtin exposed to scripts is validated range(), used directly as a for-loop iterator.
+The validator allows assignments, conditionals, comparisons, boolean expressions, basic arithmetic, range() with integer expressions, and bounded loops over range(), lists, tuples, or scene.find() results. Loops are limited to 128 iterations each, three nested levels, 4,096 actual iterations total, and 50,000 expanded-AST-work units. Function definitions, unbounded loops, imports, and arbitrary builtins remain unsupported. range() is the only exposed built-in call and is available only as a for-loop iterator.
 
 ## Using audio
 
@@ -887,7 +887,7 @@ GUI preview requires a desktop session. It may not work in a headless environmen
 
 Validation errors identify the source file, line, code, and a suggested correction when possible. Read the exact diagnostic before changing the script.
 
-The scene language is deliberately smaller than general Python. It does not expose built-ins such as `max()`, `min()`, `len()`, or `round()`. The only built-in call is `range()` directly in a bounded `for` loop. Use the API methods documented in [docs/AI_SYSTEM_PROMPT.md](docs/AI_SYSTEM_PROMPT.md).
+The scene language is deliberately smaller than general Python. It does not expose built-ins such as `max()`, `min()`, `len()`, or `round()`. The only built-in call is `range()` directly in a bounded `for` loop; list/tuple variables and `scene.find(role=...)` results can also be used as loop iterables. Use the API methods documented in [docs/AI_SYSTEM_PROMPT.md](docs/AI_SYSTEM_PROMPT.md).
 
 Both animation forms below are supported:
 
@@ -945,9 +945,9 @@ Actual GUI preview and MP4 rendering require an installed Blender executable. GU
 
 Scene generation is also subject to hard resource budgets: 1,000 scene objects, 300,000 estimated post-modifier polygons, and 1,500 modifiers. The polygon estimate accounts for common geometry-amplifying modifiers (Subdivision, Array, Mirror, Solidify, Bevel, Boolean) before the next operation is created. It is deliberately conservative and is not a substitute for monitoring system memory on complex external assets.
 
-Scene scripts run in a restricted Python language and receive only the blentopy API, a limited math namespace, and bounded range(). The validator allows documented API calls, simple variables, approved object property assignments, lists, tuples, dictionaries, arithmetic, comparisons, boolean expressions, conditionals, and statically bounded nested loops.
+Scene scripts run in a restricted Python language and receive only the blentopy API, a limited math namespace, and runtime-bounded iteration. The validator allows documented API calls, simple variables, approved object property assignments, lists, tuples, dictionaries, arithmetic, comparisons, boolean expressions, conditionals, and bounded loops over range(), lists, tuples, or scene.find() results.
 
-The validator rejects imports, raw bpy access, private/dunder attributes, arbitrary builtins, filesystem/process/network operations, while loops, function and class definitions, comprehensions, dynamic loop bounds, and undocumented API calls. Loops are limited to 128 iterations each, three nested levels, and 4,096 total expanded iterations.
+The validator rejects imports, raw bpy access, private/dunder attributes, arbitrary builtins, filesystem/process/network operations, while loops, function and class definitions, comprehensions, non-integer range() bounds, and undocumented API calls. Loops are limited to 128 iterations each, three nested levels, 4,096 actual iterations total, and 50,000 expanded-AST-work units.
 
 **These restrictions are not an operating-system sandbox.** Blender and its dependencies still run with the permissions of the local user. Do not treat untrusted .blend files, scripts, or source assets as safe.
 
