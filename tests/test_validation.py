@@ -50,6 +50,35 @@ if hero.visible and 2 > 1:
         example = Path(__file__).resolve().parents[1] / "examples" / "ai_native_scene.py"
         validate_script(example.read_text(encoding="utf-8"))
 
+    def test_accepts_direct_scene_motion_track_chain(self):
+        valid = '''
+scene = studio.scene
+hero = scene.mesh(geometry=studio.geo.box())
+position_track = scene.motion(hero).track("position")
+position_track.key(at=0, value=(0, 0, 0))
+position_track.key(at=1, value=(0, 0, 1), ease="smooth")
+'''
+        validate_script(valid)
+
+    def test_accepts_direct_studio_scene_motion_track_chain(self):
+        valid = '''
+hero = studio.scene.mesh(geometry=studio.geo.box())
+rotation_track = studio.scene.motion(hero).track("rotation")
+rotation_track.key(at=0, value=(0, 0, 0))
+'''
+        validate_script(valid)
+
+    def test_rejects_unsupported_calls_with_line_and_actionable_hint(self):
+        source = "scene = studio.scene\nresult = max(1, 2)\n"
+        with self.assertRaises(ScriptValidationError) as caught:
+            validate_script(source)
+        error = caught.exception
+        self.assertEqual(error.lineno, 2)
+        self.assertEqual(error.source_line, "result = max(1, 2)")
+        self.assertEqual(error.code, "unsupported-function")
+        self.assertIn("max()", str(error))
+        self.assertIn("Python built-ins", error.suggestion)
+
     def test_accepts_bounded_nested_loops_and_arithmetic(self):
         valid = '''
 for row in range(4):
