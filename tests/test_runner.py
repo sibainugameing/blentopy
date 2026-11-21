@@ -21,6 +21,7 @@ class _StreamingRenderProcess:
         self.stdout = io.StringIO(
             "Blender startup output\n"
             "BLENTOPY_STAGE=building_scene\n"
+            "BLENTOPY_PROGRESS=0/8\n"
             "BLENTOPY_PROGRESS=3/8\n"
             "BLENTOPY_STAGE=completed\n"
         )
@@ -90,6 +91,7 @@ class RenderProgressTests(unittest.TestCase):
                 events,
                 [
                     RenderProgress(stage="building_scene"),
+                    RenderProgress(stage="rendering", frame=0, total_frames=8),
                     RenderProgress(stage="rendering", frame=3, total_frames=8),
                     RenderProgress(stage="completed"),
                 ],

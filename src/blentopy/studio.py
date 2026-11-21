@@ -590,6 +590,10 @@ class Studio:
 
         print("BLENTOPY_STAGE=rendering", flush=True)
         render_write_handlers = getattr(self._bpy.app.handlers, "render_write", None)
+        total_output_frames = max(
+            1, int(self.output_scene.frame_end) - int(self.output_scene.frame_start) + 1
+        )
+        print(f"BLENTOPY_PROGRESS=0/{total_output_frames}", flush=True)
 
         def report_rendered_frame(scene, *_args):
             total_frames = max(1, int(scene.frame_end) - int(scene.frame_start) + 1)

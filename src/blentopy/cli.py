@@ -70,7 +70,7 @@ def _show_render_progress(progress: RenderProgress) -> None:
         "completed": "Render completed",
     }
     if progress.frame is not None and progress.total_frames:
-        percentage = min(100, round(progress.frame / progress.total_frames * 100))
+        percentage = min(100, progress.frame * 100 // progress.total_frames)
         end = "\n" if progress.frame >= progress.total_frames else "\r"
         print(
             f"Frames: {progress.frame}/{progress.total_frames} ({percentage}%)",
