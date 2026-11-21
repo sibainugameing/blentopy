@@ -44,6 +44,7 @@ blentopy is not an AI model and does not call a hosted AI API. An MCP-capable ch
 - Render an MP4 video using H.264 video and AAC audio.
 - Save an editable .blend project alongside a rendered video.
 - Expose local Blender operations as tools to an MCP-compatible chat client.
+- Use an optional Tkinter desktop interface to paste and edit AI-generated scene scripts while keeping the CLI as the execution backend.
 
 ### Not supported yet
 
@@ -60,6 +61,7 @@ blentopy is not an AI model and does not call a hosted AI API. An MCP-capable ch
 - Python 3.11 or newer for the blentopy controller.
 - Blender 4.2 or newer is required by the current runner. Blender 4.2 is exercised in the headless integration workflow; the VSE API remains version-sensitive.
 - A desktop session for GUI preview.
+- Tkinter (optional) for the lightweight blentopy desktop interface; it is not required for CUI use.
 - MCP Python SDK 2.x only if you want to use the MCP server.
 
 The controller's Python environment and Blender's bundled Python environment are separate. blentopy starts the Blender executable and runs its worker script inside Blender.
