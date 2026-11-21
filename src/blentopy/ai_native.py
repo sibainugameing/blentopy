@@ -496,6 +496,8 @@ class SceneAPI:
         obj = self._resolve(target)
         self._owner._backend._bpy.data.objects.remove(obj._object, do_unlink=True)
         self._objects.pop(obj.id, None)
+        if self._camera is obj:
+            self._camera = None
 
     def attach(self, child: Object3D, to: Object3D) -> None:
         self._require_object(child)
@@ -574,7 +576,9 @@ class SceneAPI:
             raise ValueError("anchor must be center, top, bottom, left, right, front, or back.")
         target_center = tuple(result[index] + delta[index] for index in range(3))
         world_matrix = obj._object.matrix_world.copy()
-        world_matrix.translation += self._backend._Vector(tuple(target_center[index] - obj_center[index] for index in range(3)))
+        world_matrix.translation = world_matrix.translation + self._backend._Vector(
+            tuple(target_center[index] - obj_center[index] for index in range(3))
+        )
         obj._object.matrix_world = world_matrix
 
     def look_at(self, camera: Object3D, target: Object3D | Sequence[float]) -> None:
