@@ -153,6 +153,7 @@ middle = label[1:4]
     def test_rejects_invalid_subscript_types(self):
         with self.assertRaises(ScriptValidationError):
             validate_script("items = [1, 2]\nvalue = items[1.5]")
+
     def test_compiles_and_executes_instrumented_dynamic_loop(self):
         tree = validate_script(
             "count = 3\n"
