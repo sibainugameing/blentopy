@@ -527,3 +527,12 @@ The restricted Python contract remains in force: no imports, raw `bpy`, filesyst
 ## 18. Resource budgets
 
 The current scene budgets are 1,000 Blender objects, 300,000 estimated post-modifier polygons, and 1,500 modifiers. Budget checks happen before new objects and modifiers are created. Subdivision, Array, Mirror, Solidify, Bevel, and Boolean modifiers contribute to the polygon estimate. Keep scenes below these limits; reducing object count alone does not make a dense modifier stack safe.
+
+
+## 19. Coordinate and animation conventions
+
+Blentopy uses Blender's right-handed, Z-up world coordinate system: X is left/right, Y is depth, and Z is up. The Object3D position, rotation, and scale properties are local transforms relative to the object's parent. Rotation values in the AI-native API and scene.motion(...).track("rotation").key(...) are radians. The legacy studio.animate_rotation() method deliberately retains degrees for backward compatibility.
+
+scene.place(), scene.align(), scene.frame(), scene.look_at(), and scene.duplicate(offset=...) operate in world space. Their calculations use transformed object bounds, including parent transforms and evaluated modifiers. Motion-track keys remain local-space transforms.
+
+Motion key times are seconds from the start of the scene. The scene timeline is frame-based and starts at Blender's frame_start; the final render frame is included, so a key requested at the exact duration is clamped to the final available frame. Use ease="smooth", "linear", or "constant" explicitly when interpolation matters.

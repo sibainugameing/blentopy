@@ -90,6 +90,23 @@ class SceneTimebaseTests(unittest.TestCase):
 
 
 
+
+    def test_vector3_rejects_boolean_and_numeric_string_components(self):
+        from blentopy.ai_native import _vector3
+
+        with self.assertRaises(TypeError):
+            _vector3((True, 0, 1), "position")
+        with self.assertRaises(TypeError):
+            _vector3(("1", 0, 1), "position")
+
+    def test_color_rejects_boolean_and_numeric_string_channels(self):
+        from blentopy.ai_native import _color
+
+        with self.assertRaises(TypeError):
+            _color((True, 0, 1))
+        with self.assertRaises(TypeError):
+            _color(("1", 0, 1))
+
 class ResourceLimitTests(unittest.TestCase):
     def test_scene_resource_usage_includes_objects_polygons_and_modifiers(self):
         from blentopy.resource_limits import scene_resource_usage

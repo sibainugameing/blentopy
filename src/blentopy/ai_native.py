@@ -18,9 +18,17 @@ from .resource_limits import (
 
 
 def _vector3(value: Sequence[float], label: str) -> tuple[float, float, float]:
-    if isinstance(value, (str, bytes)) or len(value) != 3:
+    if isinstance(value, (str, bytes)):
+        raise TypeError(f"{label} must be a three-number sequence, not text.")
+    try:
+        parts = tuple(value)
+    except TypeError as exc:
+        raise TypeError(f"{label} must be a three-number sequence.") from exc
+    if len(parts) != 3:
         raise ValueError(f"{label} must contain exactly three numbers.")
-    result = tuple(float(part) for part in value)
+    if any(type(part) not in {int, float} for part in parts):
+        raise TypeError(f"{label} values must be integers or floats (booleans and numeric strings are not accepted).")
+    result = tuple(float(part) for part in parts)
     if not all(math.isfinite(part) for part in result):
         raise ValueError(f"{label} values must be finite.")
     return result  # type: ignore[return-value]
@@ -38,9 +46,17 @@ def _color(value: str | Sequence[float]) -> tuple[float, float, float, float]:
         if len(channels) == 3:
             return (*channels, 1.0)
         return channels  # type: ignore[return-value]
-    if isinstance(value, (str, bytes)) or len(value) not in (3, 4):
-        raise ValueError("Colors must be RGB/RGBA values or #RRGGBB hex strings.")
-    channels = tuple(float(part) for part in value)
+    if isinstance(value, (str, bytes)):
+        raise TypeError("Colors must be RGB/RGBA numeric sequences or #RRGGBB hex strings.")
+    try:
+        parts = tuple(value)
+    except TypeError as exc:
+        raise TypeError("Colors must be RGB/RGBA numeric sequences or #RRGGBB hex strings.") from exc
+    if len(parts) not in (3, 4):
+        raise ValueError("Colors must contain three or four channels.")
+    if any(type(part) not in {int, float} for part in parts):
+        raise TypeError("Color channels must be integers or floats; booleans and numeric strings are not accepted.")
+    channels = tuple(float(part) for part in parts)
     if not all(math.isfinite(part) and 0 <= part <= 1 for part in channels):
         raise ValueError("Color channels must be finite values between 0 and 1.")
     return channels if len(channels) == 4 else (*channels, 1.0)
@@ -288,8 +304,10 @@ class Object3D:
 
     @visible.setter
     def visible(self, value: bool) -> None:
-        self._object.hide_render = not bool(value)
-        self._object.hide_viewport = not bool(value)
+        if type(value) is not bool:
+            raise TypeError("visible must be a boolean.")
+        self._object.hide_render = not value
+        self._object.hide_viewport = not value
 
     def move_to(self, position: Sequence[float]) -> Object3D:
         self.position.set(position)
@@ -898,6 +916,7 @@ class SceneAPI:
         child._object.matrix_world = world_matrix
 
     def _world_bounds(self, target: Object3D) -> tuple[tuple[float, float, float], tuple[float, float, float]]:
+        """Return evaluated world-space AABB bounds, including rotation and parenting."""
         candidates = [target]
         if target.kind == "group":
             descendants: list[Object3D] = []
@@ -911,15 +930,38 @@ class SceneAPI:
                     parent = parent.parent
             if descendants:
                 candidates = descendants
-        lows = []
-        highs = []
+
+        depsgraph = self._backend._bpy.context.evaluated_depsgraph_get()
+        points = []
         for candidate in candidates:
-            center = candidate._object.matrix_world.translation
-            dimensions = candidate._object.dimensions
-            lows.append(tuple(float(center[axis]) - float(dimensions[axis]) / 2 for axis in range(3)))
-            highs.append(tuple(float(center[axis]) + float(dimensions[axis]) / 2 for axis in range(3)))
-        low = tuple(min(bounds[axis] for bounds in lows) for axis in range(3))
-        high = tuple(max(bounds[axis] for bounds in highs) for axis in range(3))
+            object_ref = candidate._object
+            try:
+                evaluated = object_ref.evaluated_get(depsgraph)
+                matrix_world = evaluated.matrix_world
+                corners = evaluated.bound_box
+                transformed = [
+                    matrix_world @ self._backend._Vector(corner)
+                    for corner in corners
+                ]
+            except (AttributeError, ReferenceError, RuntimeError, TypeError):
+                center = object_ref.matrix_world.translation
+                dimensions = object_ref.dimensions
+                transformed = [
+                    self._backend._Vector((
+                        center[0] + sx * dimensions[0] / 2,
+                        center[1] + sy * dimensions[1] / 2,
+                        center[2] + sz * dimensions[2] / 2,
+                    ))
+                    for sx in (-1, 1)
+                    for sy in (-1, 1)
+                    for sz in (-1, 1)
+                ]
+            points.extend(tuple(float(value) for value in point) for point in transformed)
+
+        if not points:
+            raise ValueError(f"Object '{target.id}' has no measurable world-space bounds.")
+        low = tuple(min(point[axis] for point in points) for axis in range(3))
+        high = tuple(max(point[axis] for point in points) for axis in range(3))
         return low, high
 
     def place(
@@ -974,7 +1016,18 @@ class SceneAPI:
             point = target._object.matrix_world.translation
         else:
             point = _vector3(target, "target")
-        camera._object.rotation_euler = self._backend._camera_rotation(camera._object.location, point)
+        world_location = camera._object.matrix_world.translation
+        direction = self._backend._Vector(point) - self._backend._Vector(world_location)
+        if direction.length == 0:
+            raise ValueError("Camera location and target must differ.")
+        world_rotation = direction.to_track_quat("-Z", "Y")
+        parent = camera._object.parent
+        if parent is not None:
+            parent_rotation = parent.matrix_world.to_quaternion()
+            local_rotation = parent_rotation.inverted() @ world_rotation
+            camera._object.rotation_euler = local_rotation.to_euler(camera._object.rotation_mode)
+        else:
+            camera._object.rotation_euler = world_rotation.to_euler(camera._object.rotation_mode)
 
     def frame(
         self,
@@ -1054,7 +1107,10 @@ class SceneAPI:
                 half_width / max(0.01, math.tan(half_horizontal_fov)),
                 half_height / max(0.01, math.tan(half_vertical_fov)),
             ) + half_depth
-            camera._object.location = self._backend._Vector(center) + direction * distance * margin
+            desired_position = self._backend._Vector(center) + direction * distance * margin
+            world_matrix = camera._object.matrix_world.copy()
+            world_matrix.translation = desired_position
+            camera._object.matrix_world = world_matrix
         self.look_at(camera, center)
 
     def align(
@@ -1073,11 +1129,14 @@ class SceneAPI:
         index = {"x": 0, "y": 1, "z": 2}[axis]
         for item in objects:
             self._require_object(item)
-        origin = float(objects[0].position._read()[index]) if start is None else float(start)
+        first_world_position = objects[0]._object.matrix_world.translation
+        origin = float(first_world_position[index]) if start is None else float(start)
         for offset, item in enumerate(objects):
-            values = list(item.position._read())
-            values[index] = origin + offset * spacing
-            item.position.set(values)
+            world_matrix = item._object.matrix_world.copy()
+            world_position = list(world_matrix.translation)
+            world_position[index] = origin + offset * spacing
+            world_matrix.translation = self._backend._Vector(world_position)
+            item._object.matrix_world = world_matrix
 
     def camera(
         self,
@@ -1264,8 +1323,8 @@ class MotionTrack:
         value: Sequence[float],
         ease: str = "smooth",
     ) -> None:
-        if not math.isfinite(at) or at < 0 or at > self._scene._duration:
-            raise ValueError("Keyframe time must be inside the configured scene duration.")
+        if type(at) not in {int, float} or not math.isfinite(at) or at < 0 or at > self._scene._duration:
+            raise ValueError("Keyframe time must be a finite number inside the configured scene duration.")
         interpolation = {"smooth": "BEZIER", "linear": "LINEAR", "constant": "CONSTANT"}
         if ease not in interpolation:
             raise ValueError("ease must be smooth, linear, or constant.")
