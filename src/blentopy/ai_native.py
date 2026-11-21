@@ -305,7 +305,7 @@ class Object3D:
 class SceneAPI:
     """AI-facing scene graph and spatial operations."""
 
-    __slots__ = ("_owner", "_objects", "_camera", "_duration", "_fps", "_materials")
+    __slots__ = ("_owner", "_objects", "_camera", "_duration", "_fps", "_materials", "_counters")
 
     def __init__(self, owner: AIStudio) -> None:
         self._owner = owner
@@ -314,6 +314,7 @@ class SceneAPI:
         self._duration = 8.0
         self._fps = 30
         self._materials: dict[tuple[Any, ...], Any] = {}
+        self._counters: dict[str, int] = {}
 
     @property
     def _backend(self):
@@ -335,6 +336,16 @@ class SceneAPI:
         self._fps = int(fps)
         self._backend.set_timeline(self._duration, self._fps)
         self._backend.set_world_color(_color(background), strength=0.35)
+
+    def _allocate_id(self, prefix: str) -> str:
+        """Generate a deterministic ID for incidental repeated objects."""
+        counter = self._counters.get(prefix, 0)
+        while True:
+            counter += 1
+            candidate = f"{prefix}.{counter:04d}"
+            if candidate not in self._objects:
+                self._counters[prefix] = counter
+                return candidate
 
     def _register(self, object_id: str, object_ref: Any, kind: str, role: str | None) -> Object3D:
         key = _identifier(object_id)
@@ -438,30 +449,40 @@ class SceneAPI:
 
     def mesh(
         self,
-        id: str,
-        geometry: GeometrySpec,
+        id: str | GeometrySpec | None = None,
+        geometry: GeometrySpec | None = None,
         material: MaterialSpec | None = None,
         role: str | None = None,
     ) -> Object3D:
-        object_ref = self._create_mesh_object(id, geometry, material)
-        return self._register(id, object_ref, "mesh", role)
+        # A geometry may be supplied as the first positional argument; IDs are optional.
+        if isinstance(id, GeometrySpec) and geometry is None:
+            geometry = id
+            id = None
+        if geometry is None:
+            raise TypeError("scene.mesh() requires a GeometrySpec via geometry=...")
+        object_id = self._allocate_id("mesh") if id is None else _identifier(id)
+        if object_id in self._objects:
+            raise ValueError(f"Duplicate scene object id: {object_id}")
+        object_ref = self._create_mesh_object(object_id, geometry, material)
+        return self._register(object_id, object_ref, "mesh", role)
 
     def surface(
         self,
-        id: str,
+        id: str | None = None,
         size: Sequence[float] = (10, 10),
         material: MaterialSpec | None = None,
         role: str | None = "environment",
     ) -> Object3D:
-        return self.mesh(id, GeometryFactory.plane(size), material, role)
+        object_id = self._allocate_id("surface") if id is None else _identifier(id)
+        return self.mesh(object_id, GeometryFactory.plane(size), material, role)
 
     def group(
         self,
-        id: str,
+        id: str | None = None,
         children: Sequence[Object3D] = (),
         role: str | None = None,
     ) -> Object3D:
-        object_id = _identifier(id)
+        object_id = self._allocate_id("group") if id is None else _identifier(id)
         if object_id in self._objects:
             raise ValueError(f"Duplicate scene object id: {object_id}")
         bpy = self._backend._bpy
@@ -694,14 +715,14 @@ class SceneAPI:
 
     def camera(
         self,
-        id: str,
+        id: str | None = None,
         projection: str = "perspective",
         lens: float = 50,
         position: Sequence[float] = (0, -10, 4),
         target: Sequence[float] = (0, 0, 0),
         ortho_scale: float = 8,
     ) -> Object3D:
-        object_id = _identifier(id)
+        object_id = self._allocate_id("camera") if id is None else _identifier(id)
         if object_id in self._objects:
             raise ValueError(f"Duplicate scene object id: {object_id}")
         if projection not in {"perspective", "orthographic"}:
@@ -723,7 +744,7 @@ class SceneAPI:
 
     def light(
         self,
-        id: str,
+        id: str | None = None,
         type: str = "area",
         target: Object3D | Sequence[float] = (0, 0, 0),
         position: Sequence[float] = (4, -5, 7),
@@ -731,7 +752,7 @@ class SceneAPI:
         energy: float = 1200,
         size: float = 4,
     ) -> Object3D:
-        object_id = _identifier(id)
+        object_id = self._allocate_id("light") if id is None else _identifier(id)
         if object_id in self._objects:
             raise ValueError(f"Duplicate scene object id: {object_id}")
         kinds = {"area": "AREA", "point": "POINT", "spot": "SPOT", "directional": "SUN"}
