@@ -37,6 +37,12 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: "3.11"
+      - name: Install headless graphics runtime
+        run: |
+          sudo apt-get update
+          sudo apt-get install --yes \
+            libegl1 libegl-mesa0 libgl1 libgl1-mesa-dri \
+            libxrender1 libxi6 libxkbcommon0 libsm6 libxext6 libxxf86vm1
       - name: Download Blender 4.2.0
         shell: bash
         run: |
