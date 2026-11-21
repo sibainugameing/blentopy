@@ -51,7 +51,8 @@ for row in range(4):
     for column in range(5):
         x = column * 1.25
         y = row * 1.25
-        studio.add_cube("Tile", location=(x, y, 0))
+        tile = studio.scene.mesh(geometry=studio.geo.box(size=(1, 1, 0.1)))
+        tile.position.set((x, y, 0))
 '''
         validate_script(valid)
 
