@@ -18,7 +18,7 @@ STUDIO_METHODS = frozenset({
     "add_torus", "add_text", "add_camera", "set_active_camera",
     "add_area_light", "add_sun_light", "animate_location",
     "animate_rotation", "animate_scale", "animate_camera",
-    "add_audio", "fade_audio", "render",
+    "add_audio", "fade_audio",
 })
 SCENE_METHODS = frozenset({
     "configure", "mesh", "surface", "group", "add", "remove", "attach",
