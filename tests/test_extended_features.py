@@ -64,7 +64,7 @@ class ExtendedGeometryTests(unittest.TestCase):
                 "assets/model.glb", must_exist=False,
                 allowed_suffixes={".glb"}, label="Model export",
             )
-            self.assertEqual(valid, workspace / "assets" / "model.glb")
+            self.assertEqual(valid, (workspace / "assets" / "model.glb").resolve())
             with self.assertRaisesRegex(ValueError, "inside the blentopy workspace"):
                 mixin._workspace_path(
                     "../outside.glb", must_exist=False,

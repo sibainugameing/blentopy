@@ -33,8 +33,10 @@ blentopy is not an AI model and does not call a hosted AI API. An MCP-capable ch
 
 - Launch Blender's desktop application and build a scene from a Python script.
 - Preview the generated scene in Blender, then inspect and edit the project manually.
-- Create planes, beveled cubes, UV/icosphere meshes, cylinders, cones, tori, and 3D text.
-- Configure metallic, rough, coated, and emissive materials; cameras with depth of field; area and sun lights.
+- Create planes, beveled cubes, UV/icosphere meshes, circles, rings, capsules, torus knots, cylinders, cones, tori, curves, custom meshes, and 3D text.
+- Configure PBR, glass/transmission, toon, metallic, rough, coated, emissive, image-textured, and procedural-noise materials.
+- Load workspace-local HDR/EXR environments; configure Eevee/Cycles, depth of field, transparency, motion blur, and compositor effects.
+- Import and export GLB/glTF, OBJ, FBX, STL, PLY, and USD models; use linked-data instances for efficient repeated objects.
 - Build repeated scene details with bounded loops and arithmetic.
 - Use an AI-native scene graph with reusable geometry/material specs, object handles, groups, semantic placement, camera framing, custom meshes, and second-based animation tracks.
 - Create editable curves and 3D text, duplicate objects, and use bevel, subdivision, solidify, mirror, array, and Boolean modifiers.
@@ -49,7 +51,7 @@ blentopy is not an AI model and does not call a hosted AI API. An MCP-capable ch
 ### Not supported yet
 
 - Automatically generating detailed 3D models or characters.
-- Character rigging, walk cycles, or motion capture.
+- Production character rigging, automatic skin weights, walk cycles, or motion capture (basic armatures, rigid-prop binding, and rigid bodies are supported).
 - Generating narration, sound effects, or music.
 - Free-form image understanding and image-to-model generation.
 - Automatic AI diagnosis, repair, and retry after a scene-generation error.
@@ -446,6 +448,42 @@ The MCP editing tools accept only .blend projects inside the configured `BLENTOP
 | `scene.shade_smooth(...)` | Smooth mesh polygon shading |
 
 All modifier operations remain editable in Blender. Keep stable IDs and inspect the resulting project after meaningful edits.
+
+## Extended Three.js-inspired scene features
+
+The AI-native API implements Blender-native equivalents for many features commonly used in Three.js projects. It is not a browser/WebGL renderer; Blender remains the scene, simulation, and rendering backend.
+
+| Area | API | Capability |
+|---|---|---|
+| Additional geometry | geo.ico_sphere, geo.circle, geo.ring, geo.capsule, geo.torus_knot | More reusable parametric mesh types |
+| Efficient repetition | scene.instance | Linked mesh/material data with independent object transforms |
+| Material models | mat.physical, mat.glass, mat.toon | Principled BSDF extensions, transmission, IOR, thickness, toon shader |
+| Environment | scene.environment | Workspace-local HDR/EXR world lighting |
+| Render settings | scene.configure_render | Eevee/Cycles, samples, resolution percentage, transparent film, motion blur, view transform |
+| Camera | scene.camera_dof | Object-based or distance-based focus and f-stop |
+| Compositing | scene.post_process | Bloom, lens distortion, exposure, contrast, saturation |
+| Visibility | scene.set_visibility | Separate viewport and render visibility |
+| Model input | scene.import_model | GLB/glTF, OBJ, FBX, STL, PLY, USD/USDZ where supported by Blender |
+| Model output | scene.export_model | GLB/glTF, OBJ, FBX, STL, PLY, USD |
+
+Example:
+
+~~~python
+scene = studio.scene
+geo = studio.geo
+mat = studio.mat
+
+glass = mat.glass(color="#DDEEFF", ior=1.45)
+orb = scene.mesh(geometry=geo.ico_sphere(radius=0.8), material=glass)
+
+camera = scene.camera(id="camera.main", position=(0, -8, 3))
+scene.frame(camera, targets=[orb])
+scene.camera_dof(camera, focus=orb, f_stop=2.8)
+scene.configure_render(engine="eevee", samples=64)
+scene.post_process(bloom=0.2, exposure=0.1)
+~~~
+
+All file import/export and HDR/EXR paths must resolve inside BLENTOPY_WORKSPACE. Existing export destinations are never overwritten. Some importer/exporter operators depend on the Blender version and available bundled extensions. The complete method signatures, limits, and examples are in docs/AI_SYSTEM_PROMPT.md.
 
 ## Legacy Studio API reference
 
@@ -914,7 +952,7 @@ The validator rejects imports, raw bpy access, private/dunder attributes, arbitr
 
 ## Current limitations
 
-- The AI-native API supports geometry/material specs (including packed image textures and procedural Noise/ColorRamp/Bump node presets), Object3D handles, groups, custom meshes, curves, text, non-destructive modeling modifiers, spatial helpers, camera/light creation, second-based transform tracks, and incremental edits to existing .blend projects. Basic armature creation, rigid-prop vertex binding, and rigid-body simulation setup are supported. Automatic skin weights, production character rigging, cloth/soft-body/fluid simulation, sculpting, and arbitrary custom shader-node graph construction are not yet exposed as stable high-level APIs.
+- The AI-native API supports geometry/material specs (including packed image textures, procedural noise, glass/transmission, toon shading, and HDR environments), Object3D handles, linked instances, groups, custom meshes, curves, text, non-destructive modeling modifiers, camera depth of field, compositor effects, render configuration, model import/export, spatial helpers, camera/light creation, second-based transform tracks, and incremental edits to existing .blend projects. Basic armature creation, rigid-prop vertex binding, and rigid-body simulation setup are supported. Automatic skin weights, production character rigging, cloth/soft-body/fluid simulation, sculpting, and arbitrary custom shader-node graph construction are not yet exposed as stable high-level APIs.
 - No AI model is bundled with blentopy.
 - Text-to-speech, music generation, and image generation require separate tools.
 - Advanced modeling, rigging, and character workflows are not implemented.
