@@ -10,6 +10,7 @@ import subprocess
 import threading
 import time
 import uuid
+from collections import deque
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Callable
@@ -192,6 +193,27 @@ def _dispatch_render_progress(
             ))
 
 
+def _stop_render_process(process: subprocess.Popen[str]) -> None:
+    """Terminate Blender and escalate to kill if it does not stop promptly."""
+    if process.poll() is not None:
+        return
+    try:
+        process.terminate()
+    except OSError:
+        pass
+    try:
+        process.wait(timeout=3)
+    except subprocess.TimeoutExpired:
+        try:
+            process.kill()
+        except OSError:
+            pass
+        try:
+            process.wait(timeout=3)
+        except (OSError, subprocess.TimeoutExpired):
+            pass
+
+
 def _stream_blender_process(
     command: list[str],
     *,
@@ -199,7 +221,15 @@ def _stream_blender_process(
     timeout_seconds: int,
     progress_callback: Callable[[RenderProgress], None] | None,
 ) -> tuple[int, str]:
-    """Run Blender while forwarding structured progress events to the caller."""
+    """Run Blender with bounded log retention and a process-wide deadline.
+
+    Blender can close stdout before its process exits. The loop therefore waits
+    for both process termination and the reader thread, rather than treating EOF
+    as proof that Blender has finished.
+    """
+    if timeout_seconds < 1:
+        raise ValueError("timeout_seconds must be at least 1 second.")
+
     try:
         process = subprocess.Popen(
             command,
@@ -214,7 +244,7 @@ def _stream_blender_process(
     except OSError as exc:
         raise RenderError(f"Failed to start Blender: {exc}") from exc
 
-    output_queue: queue.Queue[str | None] = queue.Queue()
+    output_queue: queue.Queue[str | None] = queue.Queue(maxsize=512)
 
     def read_output() -> None:
         try:
@@ -222,33 +252,51 @@ def _stream_blender_process(
                 for output_line in process.stdout:
                     output_queue.put(output_line)
         finally:
+            if process.stdout is not None:
+                process.stdout.close()
             output_queue.put(None)
 
     reader = threading.Thread(target=read_output, name="blentopy-render-log", daemon=True)
     reader.start()
     deadline = time.monotonic() + timeout_seconds
     reader_finished = False
-    log_lines: list[str] = []
+    log_lines: deque[str] = deque()
+    log_chars = 0
+    max_log_chars = 200_000
+
+    def append_log(output_line: str) -> None:
+        nonlocal log_chars
+        if len(output_line) > max_log_chars:
+            output_line = output_line[-max_log_chars:]
+        log_lines.append(output_line)
+        log_chars += len(output_line)
+        while log_chars > max_log_chars and log_lines:
+            log_chars -= len(log_lines.popleft())
 
     def collect_queued_output() -> None:
+        nonlocal reader_finished
         while True:
             try:
                 output_line = output_queue.get_nowait()
             except queue.Empty:
                 break
-            if output_line is not None:
-                if not output_line.lstrip().startswith(("BLENTOPY_STAGE=", "BLENTOPY_PROGRESS=")):
-                    log_lines.append(output_line)
+            if output_line is None:
+                reader_finished = True
+            elif not output_line.lstrip().startswith(("BLENTOPY_STAGE=", "BLENTOPY_PROGRESS=")):
+                append_log(output_line)
 
-    while not reader_finished:
+    while True:
+        return_code = process.poll()
+        if reader_finished and return_code is not None:
+            return return_code, "".join(log_lines).strip()
+
         remaining = deadline - time.monotonic()
         if remaining <= 0:
-            try:
-                process.kill()
-                process.wait(timeout=5)
-            except (OSError, subprocess.TimeoutExpired):
-                pass
-            reader.join(timeout=5)
+            _stop_render_process(process)
+            reader_deadline = time.monotonic() + 5
+            while reader.is_alive() and time.monotonic() < reader_deadline:
+                collect_queued_output()
+                reader.join(timeout=0.05)
             collect_queued_output()
             raise RenderError(
                 f"Blender exceeded the {timeout_seconds}-second timeout.",
@@ -264,12 +312,18 @@ def _stream_blender_process(
             reader_finished = True
             continue
 
-        _dispatch_render_progress(output_line, progress_callback)
         if not output_line.lstrip().startswith(("BLENTOPY_STAGE=", "BLENTOPY_PROGRESS=")):
-            log_lines.append(output_line)
+            append_log(output_line)
 
-    return process.wait(), "".join(log_lines).strip()
-
+        if progress_callback is not None:
+            try:
+                _dispatch_render_progress(output_line, progress_callback)
+            except Exception as exc:
+                append_log(
+                    "[blentopy] Progress callback disabled after "
+                    f"{type(exc).__name__}: {exc}\\n"
+                )
+                progress_callback = None
 
 def render_script(
     script_path: str | Path, *, output_path: str | Path,
@@ -279,37 +333,62 @@ def render_script(
     progress_callback: Callable[[RenderProgress], None] | None = None,
 ) -> RenderResult:
     validate_render_settings(width, height, fps, duration_seconds)
+    if not isinstance(timeout_seconds, int) or timeout_seconds < 1:
+        raise ValueError("timeout_seconds must be a positive integer.")
+
     source, output, blend, workspace_dir = _resolve_scene_paths(
         script_path, output_path, blend_path, workspace
     )
+    if output == blend:
+        raise ValueError("The MP4 output path and .blend project path must be different.")
+
     executable = find_blender(blender)
     worker = Path(__file__).with_name("worker.py").resolve()
     command = [
         executable, "--background", "--factory-startup",
         "--python-exit-code", "1", "--python", str(worker),
     ]
-    env = _prepare_scene_environment(
-        source, output, blend, workspace_dir, width, height, fps, duration_seconds
-    )
 
-    return_code, log = _stream_blender_process(
-        command,
-        env=env,
-        timeout_seconds=timeout_seconds,
-        progress_callback=progress_callback,
-    )
-    if return_code != 0:
-        raise RenderError(f"Blender failed with exit code {return_code}.", log=log)
-    if not output.exists():
-        alternate = Path(f"{output}.mp4")
-        if alternate.exists():
-            output = alternate
-        else:
-            raise RenderError(f"MP4 output was not found: {output}", log=log)
-    if not blend.exists():
-        raise RenderError(f"Blend project was not found: {blend}", log=log)
-    return RenderResult(executable, output, blend, return_code, log)
+    # Render to unique staging paths. A failed run must not be reported as
+    # successful merely because an older output already exists at the target.
+    token = uuid.uuid4().hex
+    staged_output = output.with_name(f".{output.stem}.{token}{output.suffix}")
+    staged_blend = blend.with_name(f".{blend.stem}.{token}{blend.suffix}")
+    staged_output_alternate = Path(f"{staged_output}.mp4")
+    try:
+        env = _prepare_scene_environment(
+            source, staged_output, staged_blend, workspace_dir,
+            width, height, fps, duration_seconds,
+        )
+        return_code, log = _stream_blender_process(
+            command,
+            env=env,
+            timeout_seconds=timeout_seconds,
+            progress_callback=progress_callback,
+        )
+        if return_code != 0:
+            raise RenderError(f"Blender failed with exit code {return_code}.", log=log)
 
+        if not staged_output.exists() and staged_output_alternate.exists():
+            staged_output = staged_output_alternate
+        if not staged_output.is_file():
+            raise RenderError(f"MP4 output was not created: {output}", log=log)
+        if staged_output.stat().st_size == 0:
+            raise RenderError(f"MP4 output is empty (0 bytes): {output}", log=log)
+        if not staged_blend.is_file():
+            raise RenderError(f"Blend project was not created: {blend}", log=log)
+        if staged_blend.stat().st_size == 0:
+            raise RenderError(f"Blend project is empty (0 bytes): {blend}", log=log)
+
+        # Publish only complete artifacts. Existing outputs remain untouched
+        # until both newly generated files have passed validation.
+        os.replace(staged_output, output)
+        os.replace(staged_blend, blend)
+        return RenderResult(executable, output, blend, return_code, log)
+    finally:
+        staged_output.unlink(missing_ok=True)
+        staged_output_alternate.unlink(missing_ok=True)
+        staged_blend.unlink(missing_ok=True)
 
 def _read_preview_log(path: Path) -> str:
     try:
