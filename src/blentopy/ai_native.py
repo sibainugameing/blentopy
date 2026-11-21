@@ -1964,10 +1964,13 @@ class SceneAPI(SceneFeatureMixin):
         registered_heroes = [
             item._object for item in self._objects.values() if item.role == "hero"
         ]
-        native_heroes = [
-            obj for obj in scene.objects
-            if obj.get("blentopy_role") == "hero" and obj not in registered_heroes
-        ]
+        native_heroes = []
+        for obj in scene.objects:
+            if obj in registered_heroes:
+                continue
+            get_property = getattr(obj, "get", None)
+            if get_property is not None and get_property("blentopy_role") == "hero":
+                native_heroes.append(obj)
         heroes = registered_heroes + native_heroes
         if not heroes:
             warnings.append("No object has role='hero' (set hero['blentopy_role'] = 'hero' for native bpy objects).")
