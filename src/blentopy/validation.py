@@ -597,9 +597,7 @@ def _validate_subscript(
             fail(
                 node.slice,
                 "Slices are only supported on lists, tuples, and strings.",
-",
                 suggestion="Use a single key when indexing a dictionary.",
-",
                 code="invalid-subscript-slice",
             )
         for bound in (node.slice.lower, node.slice.upper, node.slice.step):
@@ -611,13 +609,13 @@ def _validate_subscript(
                     suggestion="Use integer slice bounds, such as values[:3] or values[1:4].",
 ",
                     code="invalid-subscript-slice",
-            )
+                )
     else:
         index_type = _infer_expression_type(node.slice, environment)
         if index_type not in {int, str, None}:
             fail(
                 node.slice,
-                "List/tuple/string indices must be integers; dictionary keys must be strings or integers.",
+                "Indices must be integers or strings.",
 ",
                 suggestion="Use an integer index or a string/integer dictionary key.",
 ",
