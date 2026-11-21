@@ -111,7 +111,11 @@ A generic MCP host entry:
       "mcpServers": {
         "blentopy": {
           "command": "/absolute/path/to/blentopy/.venv/bin/blentopy-mcp",
-          "args": []
+          "args": [],
+          "env": {
+            "BLENTOPY_WORKSPACE": "/absolute/path/to/blentopy-workspace",
+            "BLENTOPY_BLENDER": "/Applications/Blender.app/Contents/MacOS/Blender"
+          }
         }
       }
     }
