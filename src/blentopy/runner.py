@@ -43,7 +43,25 @@ def format_error_report(exc: Exception, *, script_path: str | Path | None = None
     lines = [f"Error: {exc}"]
     log = getattr(exc, "log", "") or ""
     if not log:
+        line_no = getattr(exc, "lineno", None)
+        col_offset = getattr(exc, "col_offset", None)
+        source_line = getattr(exc, "source_line", None)
+        suggestion = getattr(exc, "suggestion", None)
+        if line_no is not None:
+            column = col_offset + 1 if isinstance(col_offset, int) else None
+            location = f"{script_path or '<scene script>'}:{line_no}"
+            if column is not None:
+                location += f":{column}"
+            lines.extend(["", "Location:", f"  {location}"])
+        if source_line:
+            prefix = f"{line_no:4} | " if line_no is not None else "     | "
+            lines.extend(["", "Code:", f"  {prefix}{source_line}"])
+            if isinstance(col_offset, int):
+                lines.append("  " + " " * (len(prefix) + col_offset) + "^")
+        if suggestion:
+            lines.extend(["", "Suggested fix:", f"  {suggestion}"])
         return "\n".join(lines)
+
     log_lines = log.splitlines()
     frames = list(re.finditer(r'File "([^"]+)", line (\d+)(?:, in ([^"]+))?', log))
     if script_path:
