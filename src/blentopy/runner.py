@@ -252,8 +252,11 @@ def _stream_blender_process(
                 for output_line in process.stdout:
                     output_queue.put(output_line)
         finally:
-            if process.stdout is not None:
-                process.stdout.close()
+            try:
+                if process.stdout is not None:
+                    process.stdout.close()
+            except OSError:
+                pass
             output_queue.put(None)
 
     reader = threading.Thread(target=read_output, name="blentopy-render-log", daemon=True)
@@ -354,7 +357,6 @@ def render_script(
     token = uuid.uuid4().hex
     staged_output = output.with_name(f".{output.stem}.{token}{output.suffix}")
     staged_blend = blend.with_name(f".{blend.stem}.{token}{blend.suffix}")
-    staged_output_alternate = Path(f"{staged_output}.mp4")
     try:
         env = _prepare_scene_environment(
             source, staged_output, staged_blend, workspace_dir,
@@ -369,8 +371,6 @@ def render_script(
         if return_code != 0:
             raise RenderError(f"Blender failed with exit code {return_code}.", log=log)
 
-        if not staged_output.exists() and staged_output_alternate.exists():
-            staged_output = staged_output_alternate
         if not staged_output.is_file():
             raise RenderError(f"MP4 output was not created: {output}", log=log)
         if staged_output.stat().st_size == 0:
@@ -387,7 +387,6 @@ def render_script(
         return RenderResult(executable, output, blend, return_code, log)
     finally:
         staged_output.unlink(missing_ok=True)
-        staged_output_alternate.unlink(missing_ok=True)
         staged_blend.unlink(missing_ok=True)
 
 def _read_preview_log(path: Path) -> str:
