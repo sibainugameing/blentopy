@@ -95,14 +95,14 @@ class ExtendedGeometryTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "transmission"):
             MaterialFactory.physical(transmission=1.5)
 
-    def test_linked_instances_are_exposed_to_the_restricted_language(self):
+    def test_linked_instances_are_valid_python_scene_calls(self):
         validate_script(
             'scene = studio.scene\n'
             'source = scene.find(id="source")\n'
             'copy = scene.instance(source, offset=(1, 0, 0))\n'
         )
 
-    def test_scene_feature_methods_are_exposed_to_the_restricted_language(self):
+    def test_scene_feature_methods_are_valid_python_scene_calls(self):
         validate_script(
             'scene = studio.scene\n'
             'scene.configure_render(engine="eevee", samples=64)\n'
@@ -110,12 +110,13 @@ class ExtendedGeometryTests(unittest.TestCase):
             'scene.environment("assets/studio.exr", strength=0.8)\n'
         )
 
-    def test_unknown_scene_feature_arguments_are_rejected(self):
-        with self.assertRaises(ScriptValidationError):
-            validate_script(
-                'scene = studio.scene\n'
-                'scene.configure_render(unknown_option=True)\n'
-            )
+    def test_unknown_scene_feature_arguments_reach_runtime(self):
+        # Syntax preflight must not duplicate facade API validation. The facade
+        # raises an actionable TypeError/ValueError when this call is executed.
+        validate_script(
+            'scene = studio.scene\n'
+            'scene.configure_render(unknown_option=True)\n'
+        )
 
 
 if __name__ == "__main__":

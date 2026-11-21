@@ -44,13 +44,17 @@ scene.set_dimensions(existing, (2, 2, 2))
 scene.remove("old.decoration")
 ''')
 
-    def test_raw_blender_access_remains_rejected(self):
-        with self.assertRaises(ScriptValidationError):
-            validate_script("import bpy")
+    def test_raw_blender_access_is_accepted(self):
+        validate_script(
+            "import bpy\n"
+            "cube = bpy.data.objects.get('Cube')\n"
+            "if cube is not None:\n"
+            "    cube.location.x = 2\n"
+        )
 
-    def test_undocumented_methods_remain_rejected(self):
-        with self.assertRaises(ScriptValidationError):
-            validate_script('studio.scene.execute_arbitrary_code("danger")')
+    def test_unknown_method_calls_are_left_to_runtime(self):
+        # The preflight checks Python syntax, not the facade's runtime API.
+        validate_script('studio.scene.execute_arbitrary_code("value")')
 
 
 if __name__ == "__main__":

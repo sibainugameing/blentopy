@@ -53,7 +53,7 @@ def validate_script(source: str) -> ast.Module:
         )
     if len(source) > MAX_SCRIPT_CHARS:
         raise ScriptValidationError(
-            f"Python code exceeds the {MAX_SCRIPT_CHARS:,}-character input limit. "
+            f"Python code exceeds the {MAX_SCRIPT_CHARS:,}-character limit. "
             "Split very large scripts into imported modules in the workspace.",
             code="script-too-large",
         )
