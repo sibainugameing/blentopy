@@ -57,7 +57,7 @@ blentopy is not an AI model and does not call a hosted AI API. An MCP-capable ch
 
 - macOS, Windows, or Linux.
 - Python 3.11 or newer for the blentopy controller.
-- Blender 4.2 or newer is recommended. The VSE API is version-sensitive.
+- Blender 4.2 or newer is required by the current runner. Blender 4.2 is exercised in the headless integration workflow; the VSE API remains version-sensitive.
 - A desktop session for GUI preview.
 - MCP Python SDK 2.x only if you want to use the MCP server.
 
@@ -871,11 +871,11 @@ The validator rejects imports, raw bpy access, private/dunder attributes, arbitr
 
 ## Current limitations
 
-- The AI-native API supports geometry/material specs, Object3D handles, groups, custom meshes, curves, text, non-destructive modeling modifiers, spatial helpers, camera/light creation, second-based transform tracks, and incremental edits to existing .blend projects. Sculpting, rigging, and complex character animation are not implemented.
+- The AI-native API supports geometry/material specs, Object3D handles, groups, custom meshes, curves, text, non-destructive modeling modifiers, spatial helpers, camera/light creation, second-based transform tracks, and incremental edits to existing .blend projects. Rigging, skinning, simulation, sculpting, and custom shader-node graph construction are not yet exposed as stable high-level APIs.
 - No AI model is bundled with blentopy.
 - Text-to-speech, music generation, and image generation require separate tools.
 - Advanced modeling, rigging, and character workflows are not implemented.
-- Automatic AI retries and error repair are not implemented.
+- Workers return structured diagnostics for AI-assisted repair. The MCP system instructions recommend at most two changed-source retries; blentopy does not bundle an LLM or silently rewrite project scripts.
 - The saved-project edit workflow is not a live link to an already-open Blender GUI; reload the project to see changes made by the background edit process.
 - Blender's VSE API can differ between Blender versions and requires compatibility testing.
 - GUI preview and rendering still need to be verified on the target machine and Blender installation.
