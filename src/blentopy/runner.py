@@ -3,13 +3,16 @@
 from __future__ import annotations
 
 import json
-import re
 import os
+import queue
+import re
 import subprocess
+import threading
 import time
 import uuid
 from dataclasses import dataclass
 from pathlib import Path
+from typing import Callable
 
 from .discovery import find_blender
 from .validation import validate_script
@@ -22,6 +25,13 @@ class RenderResult:
     blend_path: Path
     return_code: int
     log: str
+
+
+@dataclass(frozen=True)
+class RenderProgress:
+    stage: str
+    frame: int | None = None
+    total_frames: int | None = None
 
 
 @dataclass(frozen=True)
@@ -162,11 +172,111 @@ def _resolve_scene_paths(
     return source, output, blend, workspace_dir
 
 
+def _dispatch_render_progress(
+    line: str,
+    callback: Callable[[RenderProgress], None] | None,
+) -> None:
+    if callback is None:
+        return
+    message = line.strip()
+    if message.startswith("BLENTOPY_STAGE="):
+        callback(RenderProgress(stage=message.partition("=")[2]))
+        return
+    if message.startswith("BLENTOPY_PROGRESS="):
+        match = re.fullmatch(r"(\d+)/(\d+)", message.partition("=")[2])
+        if match:
+            callback(RenderProgress(
+                stage="rendering",
+                frame=int(match.group(1)),
+                total_frames=int(match.group(2)),
+            ))
+
+
+def _stream_blender_process(
+    command: list[str],
+    *,
+    env: dict[str, str],
+    timeout_seconds: int,
+    progress_callback: Callable[[RenderProgress], None] | None,
+) -> tuple[int, str]:
+    """Run Blender while forwarding structured progress events to the caller."""
+    try:
+        process = subprocess.Popen(
+            command,
+            env=env,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.STDOUT,
+            text=True,
+            encoding="utf-8",
+            errors="replace",
+            bufsize=1,
+        )
+    except OSError as exc:
+        raise RenderError(f"Failed to start Blender: {exc}") from exc
+
+    output_queue: queue.Queue[str | None] = queue.Queue()
+
+    def read_output() -> None:
+        try:
+            if process.stdout is not None:
+                for output_line in process.stdout:
+                    output_queue.put(output_line)
+        finally:
+            output_queue.put(None)
+
+    reader = threading.Thread(target=read_output, name="blentopy-render-log", daemon=True)
+    reader.start()
+    deadline = time.monotonic() + timeout_seconds
+    reader_finished = False
+    log_lines: list[str] = []
+
+    def collect_queued_output() -> None:
+        while True:
+            try:
+                output_line = output_queue.get_nowait()
+            except queue.Empty:
+                break
+            if output_line is not None:
+                if not output_line.lstrip().startswith(("BLENTOPY_STAGE=", "BLENTOPY_PROGRESS=")):
+                    log_lines.append(output_line)
+
+    while not reader_finished:
+        remaining = deadline - time.monotonic()
+        if remaining <= 0:
+            try:
+                process.kill()
+                process.wait(timeout=5)
+            except (OSError, subprocess.TimeoutExpired):
+                pass
+            reader.join(timeout=5)
+            collect_queued_output()
+            raise RenderError(
+                f"Blender exceeded the {timeout_seconds}-second timeout.",
+                log="".join(log_lines).strip(),
+            )
+
+        try:
+            output_line = output_queue.get(timeout=min(0.1, remaining))
+        except queue.Empty:
+            continue
+
+        if output_line is None:
+            reader_finished = True
+            continue
+
+        _dispatch_render_progress(output_line, progress_callback)
+        if not output_line.lstrip().startswith(("BLENTOPY_STAGE=", "BLENTOPY_PROGRESS=")):
+            log_lines.append(output_line)
+
+    return process.wait(), "".join(log_lines).strip()
+
+
 def render_script(
     script_path: str | Path, *, output_path: str | Path,
     blend_path: str | Path | None = None, workspace: str | Path | None = None,
     blender: str | None = None, width: int = 1080, height: int = 1920,
     fps: int = 30, duration_seconds: int = 8, timeout_seconds: int = 3_600,
+    progress_callback: Callable[[RenderProgress], None] | None = None,
 ) -> RenderResult:
     validate_render_settings(width, height, fps, duration_seconds)
     source, output, blend, workspace_dir = _resolve_scene_paths(
@@ -182,24 +292,14 @@ def render_script(
         source, output, blend, workspace_dir, width, height, fps, duration_seconds
     )
 
-    try:
-        completed = subprocess.run(
-            command, env=env, text=True, capture_output=True,
-            check=False, timeout=timeout_seconds,
-        )
-    except subprocess.TimeoutExpired as exc:
-        stdout = exc.stdout.decode(errors="replace") if isinstance(exc.stdout, bytes) else (exc.stdout or "")
-        stderr = exc.stderr.decode(errors="replace") if isinstance(exc.stderr, bytes) else (exc.stderr or "")
-        raise RenderError(
-            f"Blender exceeded the {timeout_seconds}-second timeout.",
-            log=(stdout + "\n" + stderr).strip(),
-        ) from exc
-    except OSError as exc:
-        raise RenderError(f"Failed to start Blender: {exc}") from exc
-
-    log = "\n".join(part for part in (completed.stdout, completed.stderr) if part).strip()
-    if completed.returncode != 0:
-        raise RenderError(f"Blender failed with exit code {completed.returncode}.", log=log)
+    return_code, log = _stream_blender_process(
+        command,
+        env=env,
+        timeout_seconds=timeout_seconds,
+        progress_callback=progress_callback,
+    )
+    if return_code != 0:
+        raise RenderError(f"Blender failed with exit code {return_code}.", log=log)
     if not output.exists():
         alternate = Path(f"{output}.mp4")
         if alternate.exists():

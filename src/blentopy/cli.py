@@ -8,7 +8,13 @@ import sys
 from pathlib import Path
 
 from .discovery import BlenderNotFoundError, blender_version, find_blender
-from .runner import RenderError, format_error_report, preview_script, render_script
+from .runner import (
+    RenderError,
+    RenderProgress,
+    format_error_report,
+    preview_script,
+    render_script,
+)
 
 DEFAULT_EXAMPLE = Path(__file__).with_name("demo_scene.py")
 
@@ -55,15 +61,38 @@ def build_parser() -> argparse.ArgumentParser:
     return parser
 
 
+def _show_render_progress(progress: RenderProgress) -> None:
+    labels = {
+        "building_scene": "Building scene",
+        "validating_scene": "Validating scene",
+        "saving_project": "Saving editable Blender project",
+        "rendering": "Rendering video",
+        "completed": "Render completed",
+    }
+    if progress.frame is not None and progress.total_frames:
+        percentage = min(100, round(progress.frame / progress.total_frames * 100))
+        end = "\n" if progress.frame >= progress.total_frames else "\r"
+        print(
+            f"Frames: {progress.frame}/{progress.total_frames} ({percentage}%)",
+            end=end,
+            flush=True,
+        )
+        return
+    label = labels.get(progress.stage, progress.stage.replace("_", " ").capitalize())
+    print(f"[blentopy] {label}", flush=True)
+
+
 def _render(args: argparse.Namespace, script: Path) -> int:
     output = Path(args.output) if args.output else Path("renders") / f"{script.stem}.mp4"
     blend = Path(args.blend_output) if args.blend_output else output.with_suffix(".blend")
     workspace = Path(args.workspace) if args.workspace else Path("blentopy-workspace")
     try:
+        print(f"Starting Blender render: {script}", flush=True)
         result = render_script(
             script, output_path=output, blend_path=blend, workspace=workspace,
             blender=args.blender, width=args.width, height=args.height,
             fps=args.fps, duration_seconds=args.duration, timeout_seconds=args.timeout,
+            progress_callback=_show_render_progress,
         )
     except (ValueError, FileNotFoundError, BlenderNotFoundError, RenderError) as exc:
         print(format_error_report(exc, script_path=script), file=sys.stderr)
@@ -71,8 +100,7 @@ def _render(args: argparse.Namespace, script: Path) -> int:
     print(f"Blender: {result.blender_executable}")
     print(f"Video:   {result.output_path}")
     print(f"Project: {result.blend_path}")
-    if result.log:
-        print(result.log[-4_000:])
+    print("Render completed successfully.")
     return 0
 
 

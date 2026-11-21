@@ -584,8 +584,29 @@ class Studio:
 
         self.scene.frame_set(self.scene.frame_start)
         self.output_scene.frame_set(self.output_scene.frame_start)
+
+        print("BLENTOPY_STAGE=saving_project", flush=True)
         self._bpy.ops.wm.save_as_mainfile(filepath=str(self._blend_path))
-        self._bpy.ops.render.render(animation=True, scene=self.output_scene.name)
+
+        print("BLENTOPY_STAGE=rendering", flush=True)
+        render_write_handlers = getattr(self._bpy.app.handlers, "render_write", None)
+
+        def report_rendered_frame(scene, *_args):
+            total_frames = max(1, int(scene.frame_end) - int(scene.frame_start) + 1)
+            completed_frames = int(scene.frame_current) - int(scene.frame_start) + 1
+            completed_frames = max(0, min(completed_frames, total_frames))
+            print(
+                f"BLENTOPY_PROGRESS={completed_frames}/{total_frames}",
+                flush=True,
+            )
+
+        if render_write_handlers is not None:
+            render_write_handlers.append(report_rendered_frame)
+        try:
+            self._bpy.ops.render.render(animation=True, scene=self.output_scene.name)
+        finally:
+            if render_write_handlers is not None and report_rendered_frame in render_write_handlers:
+                render_write_handlers.remove(report_rendered_frame)
 
         if not self._output_path.exists():
             alternate = Path(f"{self._output_path}.mp4")

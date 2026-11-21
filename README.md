@@ -284,6 +284,12 @@ The current render settings are constrained:
 
 The renderer saves both the MP4 and the editable .blend project.
 
+### Live render progress
+
+The CLI streams render status while Blender is running. It reports scene construction, scene validation, project saving, and video rendering. During video rendering, the frame counter and percentage are updated as Blender finishes writing each frame.
+
+The percentage is based on completed output frames, not elapsed time or GPU tile/sample progress. A complex frame can therefore take longer without the counter moving. If rendering fails, blentopy includes the Blender log and the last available diagnostic details.
+
 ## Writing scene scripts
 
 New scripts should use the AI-native scene API. The legacy Studio API remains supported for existing scripts.

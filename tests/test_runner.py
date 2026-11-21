@@ -1,3 +1,4 @@
+import io
 import json
 import tempfile
 import unittest
@@ -5,7 +6,30 @@ from pathlib import Path
 from unittest.mock import patch
 
 from blentopy.cli import build_parser
-from blentopy.runner import RenderError, format_error_report, preview_script, validate_render_settings
+from blentopy.runner import (
+    RenderError,
+    RenderProgress,
+    format_error_report,
+    preview_script,
+    render_script,
+    validate_render_settings,
+)
+
+
+class _StreamingRenderProcess:
+    def __init__(self):
+        self.stdout = io.StringIO(
+            "Blender startup output\n"
+            "BLENTOPY_STAGE=building_scene\n"
+            "BLENTOPY_PROGRESS=3/8\n"
+            "BLENTOPY_STAGE=completed\n"
+        )
+
+    def poll(self):
+        return 0
+
+    def wait(self, timeout=None):
+        return 0
 
 
 class _RunningProcess:
@@ -37,6 +61,43 @@ class RenderSettingsTests(unittest.TestCase):
     def test_rejects_invalid_fps(self):
         with self.assertRaises(ValueError):
             validate_render_settings(720, 1280, 0, 8)
+
+
+class RenderProgressTests(unittest.TestCase):
+    def test_render_streams_stage_and_completed_frame_progress(self):
+        with tempfile.TemporaryDirectory() as folder:
+            root = Path(folder)
+            script = root / "scene.py"
+            script.write_text('studio.add_cube("Cube")\n', encoding="utf-8")
+            events = []
+
+            def launch(_command, **kwargs):
+                env = kwargs["env"]
+                Path(env["BLENTOPY_OUTPUT"]).write_bytes(b"video")
+                Path(env["BLENTOPY_BLEND"]).write_bytes(b"project")
+                return _StreamingRenderProcess()
+
+            with patch("blentopy.runner.find_blender", return_value="/fake/Blender"):
+                with patch("blentopy.runner.subprocess.Popen", side_effect=launch):
+                    result = render_script(
+                        script,
+                        output_path=root / "renders" / "scene.mp4",
+                        workspace=root / "workspace",
+                        progress_callback=events.append,
+                    )
+
+            self.assertEqual(
+                events,
+                [
+                    RenderProgress(stage="building_scene"),
+                    RenderProgress(stage="rendering", frame=3, total_frames=8),
+                    RenderProgress(stage="completed"),
+                ],
+            )
+            self.assertIn("Blender startup output", result.log)
+            self.assertNotIn("BLENTOPY_", result.log)
+            self.assertTrue(result.output_path.is_file())
+            self.assertTrue(result.blend_path.is_file())
 
 
 class PreviewRunnerTests(unittest.TestCase):

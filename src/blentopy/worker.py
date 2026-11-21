@@ -35,7 +35,9 @@ def main() -> int:
         )
         code = compile(tree, str(script_path), "exec")
         namespace = {"studio": studio, "math": math, "range": range, "__builtins__": {}}
+        print("BLENTOPY_STAGE=building_scene", flush=True)
         exec(code, namespace, namespace)
+        print("BLENTOPY_STAGE=validating_scene", flush=True)
         scene_snapshot = studio.scene.inspect()
         report = None
         if scene_snapshot["object_count"]:
@@ -48,6 +50,7 @@ def main() -> int:
             print("BLENTOPY_SCENE_REPORT=" + json.dumps(report, ensure_ascii=False), flush=True)
         print(f"BLENTOPY_RENDER_OK={rendered}", flush=True)
         print(f"BLENTOPY_BLEND_OK={saved_blend}", flush=True)
+        print("BLENTOPY_STAGE=completed", flush=True)
         return 0
     except Exception:
         traceback.print_exc()
