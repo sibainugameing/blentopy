@@ -107,6 +107,97 @@ class SceneTimebaseTests(unittest.TestCase):
         with self.assertRaises(TypeError):
             _color(("1", 0, 1))
 
+
+class SceneRenderValidationTests(unittest.TestCase):
+    @staticmethod
+    def make_scene(camera, *, width=1080, height=1920):
+        class Polygons:
+            def __len__(self):
+                return 12
+
+        mesh = type(
+            "MeshObject",
+            (),
+            {
+                "type": "MESH",
+                "hide_render": False,
+                "data": type("MeshData", (), {"polygons": Polygons()})(),
+                "modifiers": [],
+            },
+        )()
+        render = type(
+            "Render",
+            (),
+            {
+                "resolution_x": width,
+                "resolution_y": height,
+                "resolution_percentage": 100,
+                "fps": 24,
+                "fps_base": 1.0,
+            },
+        )()
+        return type(
+            "Scene",
+            (),
+            {
+                "objects": [mesh] + ([camera] if camera is not None else []),
+                "render": render,
+                "frame_start": 1,
+                "frame_end": 24,
+                "camera": camera,
+            },
+        )()
+
+    def test_validate_rejects_invalid_active_camera_clip_range(self):
+        camera = type(
+            "CameraObject",
+            (),
+            {
+                "type": "CAMERA",
+                "hide_render": False,
+                "name": "Camera",
+                "data": type(
+                    "CameraData",
+                    (),
+                    {
+                        "clip_start": 0.0,
+                        "clip_end": 100.0,
+                        "type": "PERSP",
+                        "lens": 50.0,
+                    },
+                )(),
+            },
+        )()
+        scene = self.make_scene(camera)
+        studio = type(
+            "SceneHandle",
+            (),
+            {
+                "_backend": type("Backend", (), {"scene": scene})(),
+                "_objects": {},
+            },
+        )()
+        report = SceneAPI.validate(studio)
+        self.assertFalse(report["ok"])
+        self.assertTrue(any("clipping range is invalid" in error for error in report["errors"]))
+        self.assertEqual(report["visible_light_count"], 0)
+        self.assertTrue(any("No visible lights" in warning for warning in report["warnings"]))
+
+    def test_validate_rejects_invalid_render_resolution_and_missing_camera(self):
+        scene = self.make_scene(None, width=8, height=8)
+        studio = type(
+            "SceneHandle",
+            (),
+            {
+                "_backend": type("Backend", (), {"scene": scene})(),
+                "_objects": {},
+            },
+        )()
+        report = SceneAPI.validate(studio)
+        self.assertFalse(report["ok"])
+        self.assertTrue(any("resolution" in error.lower() for error in report["errors"]))
+        self.assertIn("No active camera is configured.", report["errors"])
+
 class ResourceLimitTests(unittest.TestCase):
     def test_scene_resource_usage_includes_objects_polygons_and_modifiers(self):
         from blentopy.resource_limits import scene_resource_usage

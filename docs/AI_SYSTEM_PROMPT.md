@@ -536,3 +536,14 @@ Blentopy uses Blender's right-handed, Z-up world coordinate system: X is left/ri
 scene.place(), scene.align(), scene.frame(), scene.look_at(), and scene.duplicate(offset=...) operate in world space. Their calculations use transformed object bounds, including parent transforms and evaluated modifiers. Motion-track keys remain local-space transforms.
 
 Motion key times are seconds from the start of the scene. The scene timeline is frame-based and starts at Blender's frame_start; the final render frame is included, so a key requested at the exact duration is clamped to the final available frame. Use ease="smooth", "linear", or "constant" explicitly when interpolation matters.
+
+
+## 20. Diagnostic and bounded AI-repair protocol
+
+Workers emit one machine-readable BLENTOPY_ERROR record with an error code, exception type, message, and (when available) line number, column, source line, and suggested correction. Normal Python/Blender tracebacks remain available for deeper diagnosis. Error codes distinguish invalid API arguments, invalid scene operations, scene-validation failures, resource-limit failures, lock conflicts, cancellation, and Blender execution failures.
+
+For an AI-directed workflow, repair only the reported fault and preserve stable object IDs and unrelated scene elements. Re-run script validation before retrying. Permit at most two retries, each with changed source. Do not repeat unchanged input or retry a lock conflict, cancellation, unsupported Blender version, or resource exhaustion until its cause is addressed. Report success only after the tool confirms the expected saved artifact. Blentopy does not embed an LLM or silently rewrite user scripts; retry decisions remain with the connected AI client.
+
+## 21. Camera, lighting, and render validation
+
+Scene validation checks active camera presence/type/visibility, perspective lens or orthographic scale, near/far clipping, visible renderable geometry, output resolution, resolution percentage, frame rate, frame range, finite object world transforms, and light energy/color. It warns when no visible light is present and attempts to detect a hero object outside the active camera frame. Framing detection is diagnostic, not a guarantee of visual quality; inspect the rendered result for occlusion, exposure, composition, shadows, and material appearance.

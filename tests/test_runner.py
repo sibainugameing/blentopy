@@ -283,6 +283,28 @@ class PreviewRunnerTests(unittest.TestCase):
         report = format_error_report(RenderError("conflict", code="operation-conflict"))
         self.assertIn("Error code: operation-conflict", report)
 
+
+    def test_error_report_reads_structured_worker_diagnostics(self):
+        payload = {
+            "code": "api-argument-type-mismatch",
+            "type": "ScriptValidationError",
+            "message": "Argument 'location' has an incompatible type.",
+            "lineno": 7,
+            "col_offset": 18,
+            "source_line": 'studio.add_cube("Cube", location="left")',
+            "suggestion": "Pass a three-number vector such as (0, 0, 0).",
+        }
+        log = "BLENTOPY_ERROR=" + json.dumps(payload)
+        report = format_error_report(
+            RenderError("Blender failed", log=log),
+            script_path="scene.py",
+        )
+        self.assertIn("Error code: api-argument-type-mismatch", report)
+        self.assertIn("Error type: ScriptValidationError", report)
+        self.assertIn("scene.py:7:19", report)
+        self.assertIn("studio.add_cube", report)
+        self.assertIn("three-number vector", report)
+
     def test_error_report_shows_validation_location_and_fix(self):
         error = ValueError("Unsupported chained API call: scene.foo().bar().")
         error.lineno = 12

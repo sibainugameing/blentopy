@@ -104,7 +104,13 @@ def main() -> None:
             "Use blentopy_preview_scene only when the user specifically wants to inspect or edit the "
             "scene in the Blender GUI. For follow-up changes to a saved project, call "
             "blentopy_inspect_scene first and then blentopy_edit_scene; preserve unrelated geometry. "
-            "Otherwise render with blentopy_render_scene.\n\n"
+            "Otherwise render with blentopy_render_scene.\n"
+            "When a render, preview, or edit fails, read its stable Error code, exact source "
+            "location, diagnostic, and suggested fix. Correct only the reported issue, "
+            "revalidate, and retry at most twice with a changed script. Do not retry unchanged "
+            "input or retry conflicts, cancellations, unsupported Blender versions, or resource "
+            "exhaustion without first changing the cause. Preserve unrelated objects and stable IDs. "
+            "Never report success unless the tool returns the saved project and/or rendered artifact.\n\n"
             + load_ai_system_prompt()
         ),
     )
@@ -167,9 +173,6 @@ def main() -> None:
                     progress_callback=progress_callback,
                     cancel_event=cancel_event,
                 )
-            except asyncio.CancelledError:
-                cancel_event.set()
-                raise
             except asyncio.CancelledError:
                 cancel_event.set()
                 raise
