@@ -552,3 +552,10 @@ Scene validation checks active camera presence/type/visibility, perspective lens
 ## 22. Texture-backed and procedural node materials
 
 The material API exposes two bounded node presets: studio.mat.image_texture(filepath, roughness, metallic, coat) and studio.mat.noise(color_a, color_b, scale, detail, roughness, metallic, bump_strength). Image paths are resolved relative to BLENTOPY_WORKSPACE (or the scene-script workspace), must remain inside that workspace, must use a supported image format, and are limited to 32 MiB and 8192 pixels per dimension. Imported images are packed into the .blend file. Textures use Blender Generated coordinates; use UV unwrapping in Blender for precise production texture placement. Procedural noise builds a Noise Texture -> Color Ramp graph with an optional Bump node. Arbitrary user-authored node graphs are not exposed to the constrained script language.
+
+
+## 23. Basic rigging and rigid-body simulation
+
+`scene.armature(id, bones, role="rig")` creates a hierarchy of 1–64 named bones. Each bone dictionary requires `name`, `head`, and `tail` vectors, and may include a `parent` name. Parent references must exist and the hierarchy must be acyclic. `scene.bind_armature(mesh, rig, bone, weight=1.0)` assigns all vertices of a mesh to one bone group; this is intended for rigid props and simple deformation, not automatic skin weighting or production character skinning.
+
+`scene.rigid_body(target, body_type="ACTIVE", mass=1.0, collision_shape="CONVEX_HULL", friction=0.5, restitution=0.0)` configures Blender rigid-body physics for mesh objects and creates a cache range matching the scene timeline. The default solver settings are 8 substeps per frame and 10 iterations. This creates a simulation setup but does not bake or guarantee deterministic caches across hardware/Blender versions; bake and inspect the result in Blender before delivery. Soft-body, cloth, fluid, particle, and character-rig automation remain unsupported.

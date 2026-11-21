@@ -127,6 +127,41 @@ class SceneTimebaseTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "bump_strength"):
             MaterialFactory.noise(bump_strength=2)
 
+
+class RigAndSimulationValidationTests(unittest.TestCase):
+    def test_bone_hierarchy_rejects_duplicate_missing_parent_and_cycle(self):
+        from blentopy.ai_native import _normalize_bone_definitions
+
+        valid = _normalize_bone_definitions([
+            {"name": "Root", "head": (0, 0, 0), "tail": (0, 0, 1)},
+            {"name": "Tip", "head": (0, 0, 1), "tail": (0, 0, 2), "parent": "Root"},
+        ])
+        self.assertEqual(len(valid), 2)
+        with self.assertRaisesRegex(ValueError, "Duplicate bone"):
+            _normalize_bone_definitions([
+                {"name": "Root"}, {"name": "Root"}
+            ])
+        with self.assertRaisesRegex(ValueError, "missing parent"):
+            _normalize_bone_definitions([
+                {"name": "Tip", "parent": "Missing"}
+            ])
+        with self.assertRaisesRegex(ValueError, "cycle"):
+            _normalize_bone_definitions([
+                {"name": "A", "parent": "B"},
+                {"name": "B", "parent": "A"},
+            ])
+
+    def test_bone_hierarchy_is_bounded_and_requires_distinct_endpoints(self):
+        from blentopy.ai_native import _normalize_bone_definitions
+
+        with self.assertRaisesRegex(ValueError, "1 and 64"):
+            _normalize_bone_definitions([])
+        with self.assertRaisesRegex(ValueError, "head and tail"):
+            _normalize_bone_definitions([
+                {"name": "Root", "head": (0, 0, 0), "tail": (0, 0, 0)}
+            ])
+
+
 class SceneRenderValidationTests(unittest.TestCase):
     @staticmethod
     def make_scene(camera, *, width=1080, height=1920):

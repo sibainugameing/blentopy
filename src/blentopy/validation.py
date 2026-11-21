@@ -35,7 +35,7 @@ SCENE_METHODS = frozenset({
     "place", "look_at", "frame", "align", "camera", "light", "curve", "text",
     "duplicate", "set_dimensions", "bevel", "subdivide", "solidify", "mirror",
     "array", "boolean", "shade_smooth", "find", "update", "set_material",
-    "motion", "inspect", "validate",
+    "motion", "inspect", "validate", "armature", "bind_armature", "rigid_body",
 })
 GEOMETRY_METHODS = frozenset({
     "box", "rounded_box", "sphere", "plane", "cylinder", "cone", "torus", "mesh",

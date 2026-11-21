@@ -871,7 +871,7 @@ The validator rejects imports, raw bpy access, private/dunder attributes, arbitr
 
 ## Current limitations
 
-- The AI-native API supports geometry/material specs (including packed image textures and procedural Noise/ColorRamp/Bump node presets), Object3D handles, groups, custom meshes, curves, text, non-destructive modeling modifiers, spatial helpers, camera/light creation, second-based transform tracks, and incremental edits to existing .blend projects. Rigging, skinning, simulation, sculpting, and custom shader-node graph construction are not yet exposed as stable high-level APIs.
+- The AI-native API supports geometry/material specs (including packed image textures and procedural Noise/ColorRamp/Bump node presets), Object3D handles, groups, custom meshes, curves, text, non-destructive modeling modifiers, spatial helpers, camera/light creation, second-based transform tracks, and incremental edits to existing .blend projects. Basic armature creation, rigid-prop vertex binding, and rigid-body simulation setup are supported. Automatic skin weights, production character rigging, cloth/soft-body/fluid simulation, sculpting, and arbitrary custom shader-node graph construction are not yet exposed as stable high-level APIs.
 - No AI model is bundled with blentopy.
 - Text-to-speech, music generation, and image generation require separate tools.
 - Advanced modeling, rigging, and character workflows are not implemented.

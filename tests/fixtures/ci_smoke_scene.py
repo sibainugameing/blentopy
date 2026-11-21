@@ -19,6 +19,17 @@ hero = scene.mesh(
 ground = scene.surface(id="ci.ground", size=(6, 6))
 scene.place(hero, on=ground, anchor="top")
 
+rig = scene.armature(
+    id="ci.rig",
+    bones=[
+        {"name": "Root", "head": (0, 0, 0), "tail": (0, 0, 1.2)},
+        {"name": "Tip", "head": (0, 0, 1.2), "tail": (0, 0, 1.6), "parent": "Root"},
+    ],
+)
+scene.bind_armature(hero, rig, bone="Root")
+scene.rigid_body(ground, body_type="PASSIVE", collision_shape="MESH")
+scene.rigid_body(hero, body_type="ACTIVE", mass=1.5, collision_shape="CONVEX_HULL")
+
 camera = scene.camera(
     id="ci.camera",
     position=(4.5, -6.0, 4.0),
