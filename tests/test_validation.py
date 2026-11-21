@@ -134,6 +134,25 @@ for hero in scene.find(role="hero"):
 """
         validate_script(valid)
 
+    def test_accepts_safe_subscript_access(self):
+        valid = """
+colors = ["red", "green", "blue"]
+palette = {"primary": "red", "secondary": "blue"}
+for index in range(3):
+    color = colors[index]
+primary = palette["primary"]
+label = "abcdef"
+middle = label[1:4]
+"""
+        validate_script(valid)
+
+    def test_rejects_unsupported_subscript_container(self):
+        with self.assertRaises(ScriptValidationError):
+            validate_script("thing = studio[0]")
+
+    def test_rejects_invalid_subscript_types(self):
+        with self.assertRaises(ScriptValidationError):
+            validate_script("items = [1, 2]\nvalue = items[1.5]")
     def test_compiles_and_executes_instrumented_dynamic_loop(self):
         tree = validate_script(
             "count = 3\n"
