@@ -1,3 +1,6 @@
+import bpy
+import mathutils
+
 scene = studio.scene
 
 geometry = studio.geo.rounded_box(size=(1.6, 1.0, 1.2), bevel=0.06)
@@ -61,6 +64,26 @@ scene.light(
     energy=450,
     size=3.0,
 )
+
+def add_native_marker(index):
+    x = 1.15 + index * 0.18
+    bpy.ops.mesh.primitive_uv_sphere_add(
+        segments=16,
+        ring_count=8,
+        radius=0.07,
+        location=(x, -0.15, 0.08),
+    )
+    marker = bpy.context.object
+    marker.name = f"ci.native_marker.{index}"
+    marker["blentopy_id"] = f"ci.native_marker.{index}"
+    marker["blentopy_role"] = "decoration"
+    marker.location += mathutils.Vector((0.0, 0.0, 0.02))
+    return marker
+
+
+native_markers = [add_native_marker(index) for index in range(3)]
+for marker in native_markers:
+    marker.scale *= 1.1
 
 rotation = scene.motion(hero).track("rotation")
 rotation.key(at=0, value=(0, 0, 0))

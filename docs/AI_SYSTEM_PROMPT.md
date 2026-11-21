@@ -399,7 +399,7 @@ hero_objects = scene.find(role="hero")
 
 - scene.find(role=None, id=None) returns one matching object handle when id is supplied, or a list of matching handles for a role query.
 - Pass a role-query result directly to bulk APIs such as scene.frame(camera, targets=hero_objects) or scene.align(hero_objects, axis="x"). Lists, tuples, and dictionaries support safe indexing with integer or string keys, and list/tuple/string slices with integer bounds. Use id=... when you need one specific object.
-- scene.inspect() returns a compact dictionary describing object IDs, types, roles, visibility, and positions.
+- scene.inspect() returns a compact snapshot of every object linked to the active Blender scene, including objects created directly through bpy; it reports IDs, names, type, role, transforms, visibility, modifiers, and materials. Native objects use blentopy_id or their Blender object name as ID and blentopy_role for an optional semantic role.
 - scene.validate() reports missing cameras, empty scenes, and basic visibility/role warnings.
 
 The worker emits a JSON scene snapshot and a JSON validation report to the Blender log for new-API objects. This lets the calling AI inspect object IDs, roles, transforms, visibility, and camera presence from the returned render/preview log. Treat warnings as reasons to inspect and improve the scene, not as proof of a render defect.
