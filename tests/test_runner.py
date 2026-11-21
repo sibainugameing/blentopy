@@ -109,7 +109,7 @@ class RenderProcessLifecycleTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as folder:
             root = Path(folder)
             script = root / "scene.py"
-            script.write_text('studio.add_cube("Cube")\\n', encoding="utf-8")
+            script.write_text('studio.add_cube("Cube")\n', encoding="utf-8")
 
             def launch(_command, **kwargs):
                 env = kwargs["env"]
@@ -165,7 +165,7 @@ class RenderProcessLifecycleTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as folder:
             root = Path(folder)
             script = root / "scene.py"
-            script.write_text('studio.add_cube("Cube")\\n', encoding="utf-8")
+            script.write_text('studio.add_cube("Cube")\n', encoding="utf-8")
             output = root / "renders" / "scene.mp4"
             blend = root / "renders" / "scene.blend"
             output.parent.mkdir(parents=True)
@@ -190,7 +190,7 @@ class RenderProcessLifecycleTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as folder:
             root = Path(folder)
             script = root / "scene.py"
-            script.write_text('studio.add_cube("Cube")\\n', encoding="utf-8")
+            script.write_text('studio.add_cube("Cube")\n', encoding="utf-8")
 
             def launch(_command, **kwargs):
                 env = kwargs["env"]
