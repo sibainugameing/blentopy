@@ -1,6 +1,6 @@
 import unittest
 
-from blentopy.ai_native import GeometryFactory, MaterialFactory
+from blentopy.ai_native import GeometryFactory, MaterialFactory, SceneAPI
 
 
 class GeometryFactoryTests(unittest.TestCase):
@@ -47,6 +47,15 @@ class MaterialFactoryTests(unittest.TestCase):
             MaterialFactory.pbr(roughness=1.5)
         with self.assertRaises(ValueError):
             MaterialFactory.emissive(strength=-1)
+
+
+class SceneIdTests(unittest.TestCase):
+    def test_auto_ids_are_deterministic_and_skip_explicit_collisions(self):
+        scene = SceneAPI(owner=None)
+        self.assertEqual(scene._allocate_id("mesh"), "mesh.0001")
+        scene._objects["mesh.0002"] = object()
+        self.assertEqual(scene._allocate_id("mesh"), "mesh.0003")
+        self.assertEqual(scene._allocate_id("group"), "group.0001")
 
 
 if __name__ == "__main__":
