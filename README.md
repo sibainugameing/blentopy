@@ -358,7 +358,7 @@ New scripts do not access bpy directly. The full authoring contract, including a
 - Prefer semantic placement with scene.place(), scene.attach(), scene.look_at(), and scene.frame() over manual coordinate calculations.
 - Create a controller with motion = scene.motion(object), then use motion.track("position" | "rotation" | "scale") and keyframes measured in seconds.
 - Rotation values use radians in the new API. Legacy animate_rotation() continues to accept degrees.
-- Scene scripts support assignments, if/elif/else, comparisons, boolean expressions, range() with integer variables/arithmetic, and bounded iteration over lists, tuples, or scene.find() results.
+- Scene scripts support assignments, if/elif/else, comparisons, boolean expressions, range() with integer variables/arithmetic, bounded iteration over lists, tuples, or scene.find() results, and safe indexing/slicing of recognized containers.
 - Each loop is limited to 128 iterations; nesting is limited to three levels; total actual iterations are limited to 4,096, with a 50,000 expanded-AST-work budget.
 - Imports, raw bpy, arbitrary builtins, filesystem access, shell commands, network access, while loops, function definitions, and private attribute access are not supported.
 
@@ -663,7 +663,7 @@ The following constants and functions are exposed through **math**:
 - Constants: **math.pi**, **math.tau**, **math.e**
 - Functions: **math.sin**, **math.cos**, **math.tan**, **math.radians**, **math.degrees**, **math.sqrt**
 
-The validator allows assignments, conditionals, comparisons, boolean expressions, basic arithmetic, range() with integer expressions, and bounded loops over range(), lists, tuples, or scene.find() results. Loops are limited to 128 iterations each, three nested levels, 4,096 actual iterations total, and 50,000 expanded-AST-work units. Function definitions, unbounded loops, imports, and arbitrary builtins remain unsupported. range() is the only exposed built-in call and is available only as a for-loop iterator.
+The validator allows assignments, conditionals, comparisons, boolean expressions, basic arithmetic, range() with integer expressions, bounded loops over range(), lists, tuples, or scene.find() results, and safe indexing/slicing of recognized containers. Loops are limited to 128 iterations each, three nested levels, 4,096 actual iterations total, and 50,000 expanded-AST-work units. Function definitions, unbounded loops, imports, and arbitrary builtins remain unsupported. range() is the only exposed built-in call and is available only as a for-loop iterator.
 
 ## Using audio
 
