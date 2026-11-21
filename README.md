@@ -18,6 +18,7 @@ blentopy is not an AI model and does not call a hosted AI API. An MCP-capable ch
 - [Rendering an MP4](#rendering-an-mp4)
 - [Writing scene scripts](#writing-scene-scripts)
 - [AI-native scene API](#ai-native-scene-api-02)
+- [Extended Three.js-inspired scene features](#extended-threejs-inspired-scene-features)
 - [Using audio](#using-audio)
 - [Connecting an MCP chat client](#connecting-an-mcp-chat-client)
 - [Output files](#output-files)
@@ -344,7 +345,7 @@ New scripts should use the AI-native scene API. The legacy Studio API remains su
 The script receives:
 - studio.scene: scene graph, Object3D handles, spatial helpers, camera, lighting, motion, and inspection.
 - studio.geo: reusable geometry specifications.
-- studio.mat: reusable PBR and emissive material specifications.
+- studio.mat: reusable PBR, emissive, physical, glass, toon, image-texture, and procedural-noise material specifications.
 - math and a statically bounded range() iterator.
 
 New scripts do not access bpy directly. The full authoring contract, including all methods and accepted Python syntax, is documented in [docs/AI_SYSTEM_PROMPT.md](docs/AI_SYSTEM_PROMPT.md).
@@ -405,7 +406,7 @@ rise.key(at=0, value=(0, 0, 1))
 rise.key(at=2, value=(0, 0, 3), ease="smooth")
 ~~~
 
-The first implementation includes reusable geometry/material specifications, mesh and group handles, transforms, parent-child relationships, semantic placement/alignment, camera framing, four light types, second-based transform tracks, custom meshes, and basic scene inspection. Incidental repeated objects can omit IDs and receive deterministic per-run identifiers, avoiding generated string counters inside loops.
+The AI-native API includes reusable geometry/material specifications, mesh and group handles, linked instances, transforms, parent-child relationships, semantic placement/alignment, camera framing, lights, second-based transform tracks, custom meshes, environment maps, render configuration, compositing, model import/export, and scene inspection. Incidental repeated objects can omit IDs and receive deterministic per-run identifiers, avoiding generated string counters inside loops.
 
 The API is deliberately layered: use scene-level intent helpers for ordinary composition, Object3D handles for precise edits, and custom geometry only when built-in shapes are insufficient. Normal render and preview calls create a fresh scene. For follow-up work, use the MCP `blentopy_inspect_scene` and `blentopy_edit_scene` tools to load a saved .blend, target existing objects by ID, and apply only the requested changes. The edit is saved atomically to the same .blend path. A Blender GUI that already has the file open must reload it to display the disk changes.
 
@@ -955,7 +956,7 @@ The validator rejects imports, raw bpy access, private/dunder attributes, arbitr
 - The AI-native API supports geometry/material specs (including packed image textures, procedural noise, glass/transmission, toon shading, and HDR environments), Object3D handles, linked instances, groups, custom meshes, curves, text, non-destructive modeling modifiers, camera depth of field, compositor effects, render configuration, model import/export, spatial helpers, camera/light creation, second-based transform tracks, and incremental edits to existing .blend projects. Basic armature creation, rigid-prop vertex binding, and rigid-body simulation setup are supported. Automatic skin weights, production character rigging, cloth/soft-body/fluid simulation, sculpting, and arbitrary custom shader-node graph construction are not yet exposed as stable high-level APIs.
 - No AI model is bundled with blentopy.
 - Text-to-speech, music generation, and image generation require separate tools.
-- Advanced modeling, rigging, and character workflows are not implemented.
+- The API is not a complete node-based digital-content-creation frontend. Sculpting, retopology, automatic skinning, production character rigs, and arbitrary shader-node graph editing remain Blender-native/manual workflows.
 - Workers return structured diagnostics for AI-assisted repair. The MCP system instructions recommend at most two changed-source retries; blentopy does not bundle an LLM or silently rewrite project scripts.
 - The saved-project edit workflow is not a live link to an already-open Blender GUI; reload the project to see changes made by the background edit process.
 - Blender's VSE API can differ between Blender versions and requires compatibility testing.
