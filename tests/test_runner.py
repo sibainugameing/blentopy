@@ -5,7 +5,7 @@ from pathlib import Path
 from unittest.mock import patch
 
 from blentopy.cli import build_parser
-from blentopy.runner import RenderError, preview_script, validate_render_settings
+from blentopy.runner import RenderError, format_error_report, preview_script, validate_render_settings
 
 
 class _RunningProcess:
@@ -40,6 +40,17 @@ class RenderSettingsTests(unittest.TestCase):
 
 
 class PreviewRunnerTests(unittest.TestCase):
+    def test_error_report_includes_location_context_and_advice(self):
+        with tempfile.TemporaryDirectory() as folder:
+            script = Path(folder) / "scene.py"
+            script.write_text("studio.add_cube('Cube')\nmissing_name()\n", encoding="utf-8")
+            log = "Traceback (most recent call last):\n  File \"" + str(script) + "\", line 2, in <module>\nNameError: name 'missing_name' is not defined\n"
+            report = format_error_report(RenderError("Blender failed", log=log), script_path=script)
+            self.assertIn(str(script) + ":2", report)
+            self.assertIn("missing_name()", report)
+            self.assertIn("Suggested fix", report)
+            self.assertIn("undefined or misspelled", report)
+
     def test_preview_waits_for_saved_blend_and_keeps_gui_process(self):
         with tempfile.TemporaryDirectory() as folder:
             root = Path(folder)
