@@ -57,13 +57,13 @@ class RenderSettingsTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as folder:
             root = Path(folder)
             script = root / "scene.mp4"
-            script.write_text('studio.add_cube("Cube")\\n', encoding="utf-8")
+            script.write_text('studio.add_cube("Cube")\n', encoding="utf-8")
             with self.assertRaisesRegex(ValueError, "File path collision"):
                 _resolve_scene_paths(
                     script, script, root / "scene.blend", root / "workspace"
                 )
             blend_script = root / "project.blend"
-            blend_script.write_text('studio.add_cube("Cube")\\n', encoding="utf-8")
+            blend_script.write_text('studio.add_cube("Cube")\n', encoding="utf-8")
             with self.assertRaisesRegex(ValueError, "different paths"):
                 _resolve_scene_paths(
                     blend_script, root / "scene.mp4", blend_script, root / "workspace"
@@ -73,7 +73,7 @@ class RenderSettingsTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as folder:
             root = Path(folder)
             script = root / "scene.py"
-            script.write_text('studio.add_cube("Cube")\\n', encoding="utf-8")
+            script.write_text('studio.add_cube("Cube")\n', encoding="utf-8")
             with self.assertRaisesRegex(ValueError, ".blend extension"):
                 _resolve_scene_paths(
                     script, root / "scene.mp4", root / "project.data", root / "workspace"

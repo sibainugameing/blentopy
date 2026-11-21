@@ -16,7 +16,7 @@ from contextlib import contextmanager
 from dataclasses import dataclass
 from functools import wraps
 from pathlib import Path
-from typing import Callable, Iterable
+from typing import Callable
 
 from .discovery import BlenderNotFoundError, blender_version, find_blender
 from .validation import validate_script
@@ -71,7 +71,7 @@ def _find_compatible_blender(explicit: str | None = None) -> str:
     """Resolve Blender and reject versions older than the supported VSE baseline."""
     executable = find_blender(explicit)
     version = blender_version(executable)
-    match = re.search(r"Blender\\s+(\\d+)\\.(\\d+)(?:\\.(\\d+))?", version)
+    match = re.search(r"Blender\s+(\d+)\.(\d+)(?:\.(\d+))?", version)
     if match is None:
         raise BlenderNotFoundError(
             f"Could not determine Blender's version from: {version!r}. "
@@ -234,11 +234,13 @@ def _render_targets(args, kwargs):
 
 
 def _edit_targets(args, kwargs):
-    return (Path(args[1]).expanduser().resolve(),)
+    project = args[1] if len(args) > 1 else kwargs["blend_path"]
+    return (Path(project).expanduser().resolve(),)
 
 
 def _inspect_targets(args, kwargs):
-    return (Path(args[0]).expanduser().resolve(),)
+    project = args[0] if args else kwargs["blend_path"]
+    return (Path(project).expanduser().resolve(),)
 
 
 def _preview_targets(args, kwargs):
@@ -436,12 +438,7 @@ def _stream_blender_process(
     progress_callback: Callable[[RenderProgress], None] | None,
     cancel_event: threading.Event | None = None,
 ) -> tuple[int, str]:
-    """Run Blender with bounded log retention and a process-wide deadline.
-
-    Blender can close stdout before its process exits. The loop therefore waits
-    for both process termination and the reader thread, rather than treating EOF
-    as proof that Blender has finished.
-    """
+    """Run Blender with bounded log retention, cancellation, and a process deadline."""
     if timeout_seconds < 1:
         raise ValueError("timeout_seconds must be at least 1 second.")
 
@@ -491,77 +488,76 @@ def _stream_blender_process(
         while log_chars > max_log_chars and log_lines:
             log_chars -= len(log_lines.popleft())
 
-    def collect_queued_output() -> None:
-        nonlocal reader_finished
-        try:
+    def consume(output_line: str | None) -> None:
+        nonlocal reader_finished, progress_callback
+        if output_line is None:
+            reader_finished = True
+            return
+        if not output_line.lstrip().startswith(("BLENTOPY_STAGE=", "BLENTOPY_PROGRESS=")):
+            append_log(output_line)
+        if progress_callback is not None:
+            try:
+                _dispatch_render_progress(output_line, progress_callback)
+            except Exception as exc:
+                append_log(
+                    "[blentopy] Progress callback disabled after "
+                    f"{type(exc).__name__}: {exc}\n"
+                )
+                progress_callback = None
+
+    def drain_queue() -> None:
         while True:
-                try:
-                    output_line = output_queue.get_nowait()
-                except queue.Empty:
-                    break
-                if output_line is None:
-                    reader_finished = True
-                elif not output_line.lstrip().startswith(("BLENTOPY_STAGE=", "BLENTOPY_PROGRESS=")):
-                    append_log(output_line)
-    
+            try:
+                consume(output_queue.get_nowait())
+            except queue.Empty:
+                return
+
+    def stop_and_drain() -> None:
+        _stop_render_process(process)
+        drain_deadline = time.monotonic() + 5
+        while reader.is_alive() and time.monotonic() < drain_deadline:
+            try:
+                consume(output_queue.get(timeout=0.05))
+            except queue.Empty:
+                reader.join(timeout=0.05)
+        drain_queue()
+        reader.join(timeout=0.1)
+
+    try:
         while True:
             if cancel_event is not None and cancel_event.is_set():
-                _stop_render_process(process)
-                collect_queued_output()
-                reader.join(timeout=2)
+                stop_and_drain()
                 raise RenderError(
                     "Blender operation was cancelled; staged files were discarded.",
                     log="".join(log_lines).strip(),
                     code="operation-cancelled",
                 )
+
             return_code = process.poll()
             if reader_finished and return_code is not None:
                 return return_code, "".join(log_lines).strip()
-    
+
             remaining = deadline - time.monotonic()
             if remaining <= 0:
-                _stop_render_process(process)
-                reader_deadline = time.monotonic() + 5
-                while reader.is_alive() and time.monotonic() < reader_deadline:
-                    collect_queued_output()
-                    reader.join(timeout=0.05)
-                collect_queued_output()
+                stop_and_drain()
                 raise RenderError(
                     f"Blender exceeded the {timeout_seconds}-second timeout.",
                     log="".join(log_lines).strip(),
+                    code="blender-timeout",
                 )
-    
+
             try:
-                output_line = output_queue.get(timeout=min(0.1, remaining))
+                consume(output_queue.get(timeout=min(0.1, remaining)))
             except queue.Empty:
                 continue
-    
-            if output_line is None:
-                reader_finished = True
-                continue
-    
-            if not output_line.lstrip().startswith(("BLENTOPY_STAGE=", "BLENTOPY_PROGRESS=")):
-                append_log(output_line)
-    
-            if progress_callback is not None:
-                try:
-                    _dispatch_render_progress(output_line, progress_callback)
-                except Exception as exc:
-                    append_log(
-                        "[blentopy] Progress callback disabled after "
-                        f"{type(exc).__name__}: {exc}\\n"
-                    )
-                    progress_callback = None
-    
+
     except KeyboardInterrupt:
-        _stop_render_process(process)
-        reader.join(timeout=2)
+        stop_and_drain()
         raise RenderError(
             "Blender operation was cancelled by the user; staged files were discarded.",
             log="".join(log_lines).strip(),
             code="operation-cancelled",
         ) from None
-
 
 def _scene_report_from_log(log: str) -> dict[str, object]:
     prefix = "BLENTOPY_SCENE_REPORT="

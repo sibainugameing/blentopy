@@ -155,18 +155,21 @@ def main() -> None:
             try:
                 result = await asyncio.to_thread(
                     render_script,
-                script,
-                output_path=video,
-                blend_path=blend,
-                workspace=workspace,
-                width=width,
-                height=height,
-                fps=fps,
-                duration_seconds=duration_seconds,
-                timeout_seconds=3600,
+                    script,
+                    output_path=video,
+                    blend_path=blend,
+                    workspace=workspace,
+                    width=width,
+                    height=height,
+                    fps=fps,
+                    duration_seconds=duration_seconds,
+                    timeout_seconds=3600,
                     progress_callback=progress_callback,
                     cancel_event=cancel_event,
                 )
+            except asyncio.CancelledError:
+                cancel_event.set()
+                raise
             except asyncio.CancelledError:
                 cancel_event.set()
                 raise
