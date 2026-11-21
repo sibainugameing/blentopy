@@ -861,6 +861,8 @@ Actual GUI preview and MP4 rendering require an installed Blender executable. GU
 
 ## Security model
 
+Scene generation is also subject to hard resource budgets: 1,000 scene objects, 300,000 estimated post-modifier polygons, and 1,500 modifiers. The polygon estimate accounts for common geometry-amplifying modifiers (Subdivision, Array, Mirror, Solidify, Bevel, Boolean) before the next operation is created. It is deliberately conservative and is not a substitute for monitoring system memory on complex external assets.
+
 Scene scripts run in a restricted Python language and receive only the blentopy API, a limited math namespace, and bounded range(). The validator allows documented API calls, simple variables, approved object property assignments, lists, tuples, dictionaries, arithmetic, comparisons, boolean expressions, conditionals, and statically bounded nested loops.
 
 The validator rejects imports, raw bpy access, private/dunder attributes, arbitrary builtins, filesystem/process/network operations, while loops, function and class definitions, comprehensions, dynamic loop bounds, and undocumented API calls. Loops are limited to 128 iterations each, three nested levels, and 4,096 total expanded iterations.

@@ -33,6 +33,8 @@ def _modifier_factor(modifier: object) -> int:
         return 1 + 2 * max(1, int(getattr(modifier, "segments", 1)))
     if kind == "BOOLEAN":
         return 2
+    if kind in {"WEIGHTED_NORMAL", "NORMAL_EDIT", "SMOOTH_BY_ANGLE"}:
+        return 1
     # Unknown modifiers are budgeted conservatively instead of being free.
     return 4
 
