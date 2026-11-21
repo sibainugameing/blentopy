@@ -28,7 +28,7 @@ def main() -> int:
             sys.path.insert(0, package_parent)
 
         import bpy
-        from blentopy.studio import Studio
+        from blentopy.ai_native import AIStudio
         from blentopy.validation import validate_script
 
         script_path = Path(os.environ["BLENTOPY_SCRIPT"]).resolve(strict=True)
@@ -41,7 +41,7 @@ def main() -> int:
         duration = int(os.environ["BLENTOPY_DURATION"])
 
         tree = validate_script(script_path.read_text(encoding="utf-8"))
-        studio = Studio(
+        studio = AIStudio(
             workspace=str(workspace), output_path=str(output), blend_path=str(blend),
             width=width, height=height, fps=fps, duration_seconds=duration,
         )
@@ -50,21 +50,21 @@ def main() -> int:
         exec(code, namespace, namespace)
 
         for window in bpy.context.window_manager.windows:
-            window.scene = studio.scene
+            window.scene = studio.blender_scene
 
         for screen in bpy.data.screens:
             for area in screen.areas:
                 if area.type != "VIEW_3D":
                     continue
                 space = area.spaces.active
-                if studio.scene.camera is not None:
+                if studio.blender_scene.camera is not None:
                     space.region_3d.view_perspective = "CAMERA"
                 try:
                     space.shading.color_type = "MATERIAL"
                 except (AttributeError, TypeError, ValueError):
                     pass
 
-        studio.scene.frame_set(studio.scene.frame_start)
+        studio.blender_scene.frame_set(studio.blender_scene.frame_start)
         bpy.context.view_layer.update()
         bpy.ops.wm.save_as_mainfile(filepath=str(blend))
         if not blend.is_file():
