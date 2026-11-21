@@ -17,7 +17,7 @@ def main() -> int:
             sys.path.insert(0, package_parent)
 
         from blentopy.ai_native import AIStudio
-        from blentopy.validation import validate_script
+        from blentopy.validation import validate_script, _bounded_range, _bounded_loop_iterator
 
         script_path = Path(os.environ["BLENTOPY_SCRIPT"]).resolve(strict=True)
         workspace = Path(os.environ["BLENTOPY_WORKSPACE"]).resolve()
@@ -34,7 +34,16 @@ def main() -> int:
             width=width, height=height, fps=fps, duration_seconds=duration,
         )
         code = compile(tree, str(script_path), "exec")
-        namespace = {"studio": studio, "math": math, "range": range, "__builtins__": {}}
+        loop_budget = {"iterations": 0, "expansion_cost": 0}
+        namespace = {
+            "studio": studio,
+            "math": math,
+            "range": _bounded_range,
+            "__blentopy_bounded_iter__": lambda iterable, node_cost: (
+                _bounded_loop_iterator(iterable, node_cost, loop_budget)
+            ),
+            "__builtins__": {},
+        }
         print("BLENTOPY_STAGE=building_scene", flush=True)
         exec(code, namespace, namespace)
         print("BLENTOPY_STAGE=validating_scene", flush=True)
