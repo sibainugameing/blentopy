@@ -84,7 +84,10 @@ def main() -> int:
         else:
             print(f"BLENTOPY_INSPECT_OK={source_blend}", flush=True)
         return 0
-    except Exception:
+    except Exception as exc:
+        from blentopy.error_diagnostics import emit_worker_error
+
+        emit_worker_error(exc)
         traceback.print_exc()
         return 1
 

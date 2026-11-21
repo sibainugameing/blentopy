@@ -50,7 +50,10 @@ def main() -> int:
         print(f"BLENTOPY_BLEND_OK={saved_blend}", flush=True)
         print("BLENTOPY_STAGE=completed", flush=True)
         return 0
-    except Exception:
+    except Exception as exc:
+        from blentopy.error_diagnostics import emit_worker_error
+
+        emit_worker_error(exc)
         traceback.print_exc()
         return 1
 

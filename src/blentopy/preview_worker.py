@@ -81,6 +81,9 @@ def main() -> int:
         print(f"BLENTOPY_PREVIEW_READY={blend}", flush=True)
         return 0
     except Exception as exc:
+        from blentopy.error_diagnostics import emit_worker_error
+
+        emit_worker_error(exc)
         error = traceback.format_exc()
         print(error, file=sys.stderr, flush=True)
         try:

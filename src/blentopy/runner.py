@@ -258,6 +258,38 @@ def format_error_report(exc: Exception, *, script_path: str | Path | None = None
     )
     lines = [f"Error: {exc}", f"Error code: {code}"]
     log = getattr(exc, "log", "") or ""
+    structured = None
+    for entry in log.splitlines():
+        if entry.startswith("BLENTOPY_ERROR="):
+            try:
+                value = json.loads(entry[len("BLENTOPY_ERROR="):])
+            except json.JSONDecodeError:
+                continue
+            if isinstance(value, dict) and isinstance(value.get("code"), str):
+                structured = value
+                break
+    if structured is not None:
+        lines[1] = f"Error code: {structured['code']}"
+        error_type = structured.get("type")
+        if error_type:
+            lines.append(f"Error type: {error_type}")
+        if structured.get("message"):
+            lines.append(f"Diagnostic: {structured['message']}")
+        line_no = structured.get("lineno")
+        col_offset = structured.get("col_offset")
+        source_line = structured.get("source_line")
+        suggestion = structured.get("suggestion")
+        if isinstance(line_no, int):
+            location = f"{script_path or '<scene script>'}:{line_no}"
+            if isinstance(col_offset, int):
+                location += f":{col_offset + 1}"
+            lines.extend(["", "Location:", f"  {location}"])
+        if isinstance(source_line, str) and source_line:
+            lines.extend(["", "Code:", f"  {source_line}"])
+            if isinstance(col_offset, int):
+                lines.append("  " + " " * col_offset + "^")
+        if isinstance(suggestion, str) and suggestion:
+            lines.extend(["", "Suggested fix:", f"  {suggestion}"])
     if not log:
         line_no = getattr(exc, "lineno", None)
         col_offset = getattr(exc, "col_offset", None)
