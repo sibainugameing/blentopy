@@ -119,10 +119,9 @@ class BlentopyGUI:
         self.status_var = tk.StringVar(value="Ready — open or paste a Python scene script.")
 
         self._build_widgets()
-        self.root.bind("<Control-s>", lambda _event: self.save_script())
-        self.root.bind("<Command-s>", lambda _event: self.save_script())
-        self.root.bind("<Control-o>", lambda _event: self.open_script())
-        self.root.bind("<Command-o>", lambda _event: self.open_script())
+        shortcut = "Command" if sys.platform == "darwin" else "Control"
+        self.root.bind(f"<{shortcut}-s>", lambda _event: self.save_script())
+        self.root.bind(f"<{shortcut}-o>", lambda _event: self.open_script())
         self.root.after(80, self._drain_events)
 
     def _build_widgets(self) -> None:
@@ -464,14 +463,17 @@ class BlentopyGUI:
                 "height": self._integer(self.height_var, "Height"),
                 "fps": self._integer(self.fps_var, "FPS"),
                 "duration": self._integer(self.duration_var, "Duration"),
-                "timeout": self._integer(self.timeout_var, "Render timeout"),
-                "startup_timeout": self._integer(
-                    self.startup_timeout_var, "Preview startup wait"
-                ),
             }
             if action == "render":
+                options["timeout"] = self._integer(
+                    self.timeout_var, "Render timeout"
+                )
                 options["output"] = self.output_var.get().strip() or (
                     Path("renders") / f"{script.stem}.mp4"
+                )
+            else:
+                options["startup_timeout"] = self._integer(
+                    self.startup_timeout_var, "Preview startup wait"
                 )
             command = build_cli_command(action, **options)
         except (ValueError, FileNotFoundError) as exc:
