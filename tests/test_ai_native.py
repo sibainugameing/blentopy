@@ -173,9 +173,9 @@ class RigAndSimulationValidationTests(unittest.TestCase):
             workspace = Path(folder)
             outside = workspace.parent / "outside.png"
             outside.write_bytes(b"png")
-            scene = object.__new__(SceneAPI)
-            scene._backend = SimpleNamespace(_workspace=workspace)
-            scene._materials = {}
+            scene = SceneAPI(
+                SimpleNamespace(_backend=SimpleNamespace(_workspace=workspace))
+            )
             material = MaterialFactory.image_texture(str(outside))
             with self.assertRaisesRegex(ValueError, "inside the blentopy workspace"):
                 SceneAPI._material(scene, material, "test.material")

@@ -63,6 +63,7 @@ jobs:
             --blender "$BLENTOPY_BLENDER" \
             --output renders/ci-smoke.mp4 \
             --blend-output renders/ci-smoke.blend \
+            --workspace tests/fixtures \
             --width 256 --height 256 --fps 12 --duration 1 --timeout 600
           test -s renders/ci-smoke.mp4
           test -s renders/ci-smoke.blend
