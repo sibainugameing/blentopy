@@ -50,6 +50,7 @@ def main() -> int:
         exec(code, namespace, namespace)
         scene_snapshot = studio.scene.inspect()
         if scene_snapshot["object_count"]:
+            print("BLENTOPY_SCENE_SNAPSHOT=" + json.dumps(scene_snapshot, ensure_ascii=False), flush=True)
             report = studio.scene.validate()
             print("BLENTOPY_SCENE_REPORT=" + json.dumps(report, ensure_ascii=False), flush=True)
             if not report["ok"]:
