@@ -1317,9 +1317,9 @@ class SceneAPI:
         kinds = {"area": "AREA", "point": "POINT", "spot": "SPOT", "directional": "SUN"}
         if type not in kinds:
             raise ValueError("Light type must be area, point, spot, or directional.")
-        if type(energy) not in {int, float} or not math.isfinite(energy) or energy <= 0:
+        if energy.__class__ not in {int, float} or not math.isfinite(energy) or energy <= 0:
             raise ValueError("Light energy must be finite and greater than zero.")
-        if type(size) not in {int, float} or not math.isfinite(size) or size <= 0:
+        if size.__class__ not in {int, float} or not math.isfinite(size) or size <= 0:
             raise ValueError("Light size must be finite and greater than zero.")
         position_value = _vector3(position, "position")
         color_value = _color(color)[:3]

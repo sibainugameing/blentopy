@@ -109,14 +109,28 @@ class RenderProgressTests(unittest.TestCase):
                 Path(env["BLENTOPY_BLEND"]).write_bytes(b"project")
                 return _StreamingRenderProcess()
 
-            with patch("blentopy.runner._find_compatible_blender", return_value="/fake/Blender"):
-                with patch("blentopy.runner.subprocess.Popen", side_effect=launch):
-                    result = render_script(
-                        script,
-                        output_path=root / "renders" / "scene.mp4",
-                        workspace=root / "workspace",
-                        progress_callback=events.append,
-                    )
+            class SynchronousReaderThread:
+                def __init__(self, *, target, **_kwargs):
+                    self.target = target
+
+                def start(self):
+                    self.target()
+
+                def is_alive(self):
+                    return False
+
+                def join(self, timeout=None):
+                    return None
+
+            with patch("blentopy.runner.threading.Thread", SynchronousReaderThread):
+                with patch("blentopy.runner._find_compatible_blender", return_value="/fake/Blender"):
+                    with patch("blentopy.runner.subprocess.Popen", side_effect=launch):
+                        result = render_script(
+                            script,
+                            output_path=root / "renders" / "scene.mp4",
+                            workspace=root / "workspace",
+                            progress_callback=events.append,
+                        )
 
             self.assertEqual(
                 events,
