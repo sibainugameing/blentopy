@@ -1,7 +1,7 @@
 import unittest
 from pathlib import Path
 
-from blentopy.validation import ScriptValidationError, validate_script
+from blentopy.validation import (\n    ScriptValidationError, _bounded_loop_iterator, _bounded_range, validate_script,\n)
 
 
 class ScriptValidationTests(unittest.TestCase):
@@ -103,9 +103,63 @@ for row in range(4):
 '''
         validate_script(valid)
 
+    def test_accepts_dynamic_range_bounds_and_integer_expressions(self):
+        valid = """
+count = 4
+start = 1
+step = 2
+for index in range(start, count * 3, step):
+    x = index * 0.25
+    studio.add_cube("dynamic", location=(x, 0, 0))
+"""
+        validate_script(valid)
+
+    def test_accepts_list_tuple_and_scene_find_iteration(self):
+        valid = """
+scene = studio.scene
+first = scene.mesh(geometry=studio.geo.box())
+second = scene.mesh(geometry=studio.geo.sphere())
+objects = [first, second]
+for item in objects:
+    item.visible = True
+for side in ("left", "right"):
+    side_name = side
+heroes = scene.find(role="hero")
+for hero in heroes:
+    hero.visible = True
+for hero in scene.find(role="hero"):
+    hero.position.x = 1
+"""
+        validate_script(valid)
+
+    def test_runtime_loop_budget_guards_dynamic_work(self):
+        with self.assertRaisesRegex(ValueError, "128 iterations"):
+            _bounded_range(129)
+
+        budget = {"iterations": 4096, "expansion_cost": 0}
+        with self.assertRaisesRegex(RuntimeError, "total loop budget"):
+            list(_bounded_loop_iterator(range(1), 1, budget))
+
+        sequence_budget = {"iterations": 0, "expansion_cost": 0}
+        self.assertEqual(
+            list(_bounded_loop_iterator(("a", "b"), 1, sequence_budget)),
+            ["a", "b"],
+        )
+        self.assertEqual(sequence_budget["iterations"], 2)
+
+    def test_rejects_unsupported_loop_iterables_and_dynamic_types(self):
+        cases = (
+            "for item in studio.scene.mesh(geometry=studio.geo.box()):\\n    item.visible = True",
+            "for item in unknown_items:\\n    item.visible = True",
+            "for item in range(2.5):\\n    item = 1",
+        )
+        for source in cases:
+            with self.subTest(source=source):
+                with self.assertRaises(ScriptValidationError):
+                    validate_script(source)
+
     def test_rejects_unbounded_or_excessive_loops(self):
         cases = (
-            "for i in range(count):\n    studio.add_cube('x')",
             "for i in range(1000):\n    studio.add_cube('x')",
             "for i in range(65):\n    for j in range(65):\n        studio.add_cube('x')",
             "for a in range(2):\n    for b in range(2):\n        for c in range(2):\n            for d in range(2):\n                studio.add_cube('x')",
