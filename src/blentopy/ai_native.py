@@ -152,7 +152,9 @@ class GeometryFactory:
         points = tuple(_vector3(vertex, "vertex") for vertex in vertices)
         polygons: list[tuple[int, ...]] = []
         for face in faces:
-            indices = tuple(int(index) for index in face)
+            if any(type(index) is not int for index in face):
+                raise ValueError("Face indices must be integers.")
+            indices = tuple(face)
             if len(indices) < 3 or any(index < 0 or index >= len(points) for index in indices):
                 raise ValueError("Each face needs at least three valid vertex indices.")
             polygons.append(indices)
@@ -560,7 +562,7 @@ class SceneAPI:
         if data.type == "ORTHO":
             data.ortho_scale = max(extent[0], extent[2], extent[1]) * margin
         else:
-            half_fov = math.atan(data.sensor_height / (2 * max(10, data.lens) / 36))
+            half_fov = math.atan(data.sensor_height / (2 * max(10, data.lens)))
             distance = max(extent) * margin / max(0.1, 2 * math.tan(half_fov))
             camera._object.location = self._backend._Vector(center) + direction * distance
         self.look_at(camera, center)
@@ -625,7 +627,6 @@ class SceneAPI:
         color: str | Sequence[float] = "#FFFFFF",
         energy: float = 1200,
         size: float = 4,
-        preset: str | None = None,
     ) -> Object3D:
         object_id = _identifier(id)
         if object_id in self._objects:
@@ -635,6 +636,8 @@ class SceneAPI:
             raise ValueError("Light type must be area, point, spot, or directional.")
         if not math.isfinite(energy) or energy < 0 or not math.isfinite(size) or size <= 0:
             raise ValueError("Light energy and size must be finite and positive.")
+        if isinstance(target, Object3D):
+            self._require_object(target)
         bpy = self._backend._bpy
         data = bpy.data.lights.new(f"{object_id} Data", type=kinds[type])
         data.energy = float(energy)
@@ -656,8 +659,6 @@ class SceneAPI:
         direction = self._backend._Vector(target_point) - self._backend._Vector(light_obj.location)
         if direction.length:
             light_obj.rotation_euler = direction.to_track_quat("-Z", "Y").to_euler()
-        if preset not in (None, "softbox", "rim", "key", "fill"):
-            raise ValueError("Unknown light preset.")
         return result
 
     def find(self, role: str | None = None, id: str | None = None):
@@ -739,7 +740,8 @@ class MotionTrack:
         if ease not in interpolation:
             raise ValueError("ease must be smooth, linear, or constant.")
         vector = _vector3(value, "keyframe value")
-        frame = self._scene._backend.scene.frame_start + round(at * self._scene._fps)
+        frame_offset = min(round(at * self._scene._fps), round(self._scene._duration * self._scene._fps) - 1)
+        frame = self._scene._backend.scene.frame_start + frame_offset
         if not self._scene._backend.scene.frame_start <= frame <= self._scene._backend.scene.frame_end:
             raise ValueError("Keyframe maps outside the scene timeline.")
         setattr(self._target._object, self._data_path, vector)
