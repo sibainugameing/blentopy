@@ -1,4 +1,5 @@
 import unittest
+from pathlib import Path
 
 from blentopy.validation import ScriptValidationError, validate_script
 
@@ -44,6 +45,10 @@ if hero.visible and 2 > 1:
     hero.rotation.z = math.radians(15)
 '''
         validate_script(valid)
+
+    def test_accepts_repository_ai_native_example(self):
+        example = Path(__file__).resolve().parents[1] / "examples" / "ai_native_scene.py"
+        validate_script(example.read_text(encoding="utf-8"))
 
     def test_accepts_bounded_nested_loops_and_arithmetic(self):
         valid = '''
