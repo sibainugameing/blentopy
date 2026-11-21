@@ -605,9 +605,7 @@ def _validate_subscript(
                 fail(
                     bound,
                     "Slice bounds must be integers.",
-",
                     suggestion="Use integer slice bounds, such as values[:3] or values[1:4].",
-",
                     code="invalid-subscript-slice",
                 )
     else:
@@ -616,21 +614,16 @@ def _validate_subscript(
             fail(
                 node.slice,
                 "Indices must be integers or strings.",
-",
                 suggestion="Use an integer index or a string/integer dictionary key.",
-",
                 code="invalid-subscript-index",
             )
         if container_type in {list, tuple, str} and index_type not in {int, None}:
             fail(
                 node.slice,
                 "List, tuple, and string indices must be integers.",
-",
                 suggestion="Use an integer index such as items[0] or items[index].",
-",
                 code="invalid-subscript-index",
             )
-
 
 def _validate_dataflow(tree: ast.Module, fail, source: str) -> None:
     """Reject forward references and names that are not defined on every path."""
