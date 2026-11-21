@@ -40,6 +40,19 @@ class RenderSettingsTests(unittest.TestCase):
 
 
 class PreviewRunnerTests(unittest.TestCase):
+    def test_error_report_shows_validation_location_and_fix(self):
+        error = ValueError("Unsupported chained API call: scene.foo().bar().")
+        error.lineno = 12
+        error.col_offset = 8
+        error.source_line = "result = scene.foo().bar()"
+        error.suggestion = "Assign intermediate API results to variables."
+        report = format_error_report(error, script_path="scene.py")
+        self.assertIn("scene.py:12:9", report)
+        self.assertIn("result = scene.foo().bar()", report)
+        self.assertIn("^", report)
+        self.assertIn("Suggested fix:", report)
+        self.assertIn("Assign intermediate API results", report)
+
     def test_error_report_includes_location_context_and_advice(self):
         with tempfile.TemporaryDirectory() as folder:
             script = Path(folder) / "scene.py"
