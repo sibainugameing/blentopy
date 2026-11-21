@@ -1,267 +1,296 @@
 # blentopy
 
-**PythonでBlenderの3Dシーンを作成し、GUIで確認・編集したり、MP4まで自動出力したりするためのローカルAI操作ブリッジ。**
+**A Python-first local bridge for creating Blender scenes, inspecting them in the Blender GUI, and rendering MP4 videos.**
 
-blentopy自体はAIモデルではありません。ChatGPTなどのMCP対応AIがシーンのPythonコードを考え、ローカルのblentopyがBlenderを起動して実行します。AI APIキーはblentopy側には不要です。
+blentopy is not an AI model and does not call a hosted AI API. An MCP-capable chat client (or a person writing a scene script) supplies Python code. blentopy validates that code, launches the local Blender executable, builds the scene, and can export an editable Blender project and an MP4 video. No AI API key is required by blentopy.
 
-> まだプロトタイプです。GUIプレビューとMP4レンダリングの実機確認は、使用するMacとBlenderのバージョンで行ってください。
+> blentopy is an early-stage prototype. GUI preview and video rendering should be tested on your own operating system and Blender version before relying on them.
 
-## 目次
+## Contents
 
-- [できること・できないこと](#できることできないこと)
-- [必要な環境](#必要な環境)
-- [インストール](#インストール)
-- [アップデート](#アップデート)
-- [Blenderの認識確認](#blenderの認識確認)
-- [GUIプレビューを使う](#guiプレビューを使う)
-- [MP4をレンダリングする](#mp4をレンダリングする)
-- [シーン用Pythonコードの書き方](#シーン用pythonコードの書き方)
-- [Studio API リファレンス](#studio-api-リファレンス)
-- [音声を使う](#音声を使う)
-- [MCPでチャットAIと接続する](#mcpでチャットaiと接続する)
-- [出力ファイル](#出力ファイル)
-- [トラブルシューティング](#トラブルシューティング)
-- [テスト](#テスト)
-- [安全性について](#安全性について)
-- [現在の制限](#現在の制限)
+- [What it can do](#what-it-can-do)
+- [Requirements](#requirements)
+- [Installation](#installation)
+- [Updating](#updating)
+- [Checking the Blender installation](#checking-the-blender-installation)
+- [Previewing a scene in the Blender GUI](#previewing-a-scene-in-the-blender-gui)
+- [Rendering an MP4](#rendering-an-mp4)
+- [Writing scene scripts](#writing-scene-scripts)
+- [Studio API reference](#studio-api-reference)
+- [Using audio](#using-audio)
+- [Connecting an MCP chat client](#connecting-an-mcp-chat-client)
+- [Output files](#output-files)
+- [Troubleshooting](#troubleshooting)
+- [Tests](#tests)
+- [Security model](#security-model)
+- [Current limitations](#current-limitations)
+- [License](#license)
 
-## できること・できないこと
+## What it can do
 
-### できること
+### Supported workflows
 
-- Blender GUIを開き、Pythonスクリプトからシーンを作成する
-- GUIプレビューで生成したシーンを確認し、そのまま手動編集する
-- Cube、Sphere、Cylinder、Plane、テキストなどの基本オブジェクトを作る
-- マテリアル、カメラ、ライトを設定する
-- オブジェクトの移動・回転・拡縮アニメーションをキーフレームで作る
-- 既存の音声ファイルを動画タイムラインに配置する
-- MP4 (H.264) と編集可能な .blend ファイルを出力する
-- MCP対応チャットからローカルBlenderの操作を呼び出す
+- Launch Blender's desktop application and build a scene from a Python script.
+- Preview the generated scene in Blender, then inspect and edit the project manually.
+- Create basic objects such as planes, cubes, UV spheres, cylinders, and text.
+- Configure materials, cameras, lights, and the world background.
+- Animate object location, rotation, and scale with keyframes.
+- Add existing audio files to the Video Sequence Editor (VSE).
+- Render an MP4 video using H.264 video and AAC audio.
+- Save an editable .blend project alongside a rendered video.
+- Expose local Blender operations as tools to an MCP-compatible chat client.
 
-### 現状まだできないこと
+### Not supported yet
 
-- AIが自動で複雑な3Dモデルやキャラクターを生成する
-- リギング、歩行アニメーション、モーションキャプチャ
-- 音声・BGMを自動生成する
-- 画像を理解して自由にモデリングする
-- エラー発生時にAIが自動で原因分析・修復・再実行する
-- GUI上のオブジェクトを見ながらリアルタイムにAIが連続操作する（現状はスクリプト実行単位）
+- Automatically generating detailed 3D models or characters.
+- Character rigging, walk cycles, or motion capture.
+- Generating narration, sound effects, or music.
+- Free-form image understanding and image-to-model generation.
+- Automatic AI diagnosis, repair, and retry after a scene-generation error.
+- Continuous real-time AI manipulation of objects in an already-open Blender session. The current workflow executes a scene script as a unit.
 
-## 必要な環境
+## Requirements
 
-- macOS / Windows / Linux (GUIプレビューにはデスクトップ環境が必要)
-- Python 3.11 以降
-- Blender 4.2 以降を推奨
-- GUIプレビュー: BlenderがGUIで起動できること
-- MCP接続を使う場合: MCP SDK 2.x
+- macOS, Windows, or Linux.
+- Python 3.11 or newer for the blentopy controller.
+- Blender 4.2 or newer is recommended. The VSE API is version-sensitive.
+- A desktop session for GUI preview.
+- MCP Python SDK 2.x only if you want to use the MCP server.
 
-Python環境とBlender内部のPython環境は別物です。blentopyは外側のPythonからBlender実行ファイルを呼び出し、Blender内で専用ワーカーを実行します。
+The controller's Python environment and Blender's bundled Python environment are separate. blentopy starts the Blender executable and runs its worker script inside Blender.
 
-## インストール
+## Installation
 
-ターミナルでリポジトリのディレクトリに移動します。
+Open a terminal and move to the repository directory:
 
-\`\`\`bash
+~~~bash
 cd blentopy
-\`\`\`
+~~~
 
-仮想環境を作成し、有効化します。
+Create and activate a virtual environment:
 
-\`\`\`bash
+~~~bash
 python3 -m venv .venv
 source .venv/bin/activate
-\`\`\`
+~~~
 
-パッケージを開発モードでインストールします。
+On Windows PowerShell, activate it with:
 
-\`\`\`bash
+~~~powershell
+.venv\Scripts\Activate.ps1
+~~~
+
+Install blentopy in editable mode:
+
+~~~bash
 python -m pip install --upgrade pip
 python -m pip install -e .
-\`\`\`
+~~~
 
-MCP機能も使う場合は、追加依存関係込みでインストールします。
+To enable the MCP server as well, install the optional MCP dependency:
 
-\`\`\`bash
+~~~bash
 python -m pip install -e '.[mcp]'
-\`\`\`
+~~~
 
-> 仮想環境を使うことを推奨します。以降のコマンドは、同じターミナルで \`.venv\` を有効化して実行してください。
+Keep the virtual environment activated when running the commands below.
 
-## アップデート
+## Updating
 
-GitHubのmainブランチから最新コードを取得します。
+Pull the latest code from the repository's main branch, then refresh the editable installation:
 
-\`\`\`bash
+~~~bash
 git switch main
 git pull --ff-only origin main
 source .venv/bin/activate
 python -m pip install -e . --force-reinstall
-\`\`\`
+~~~
 
-CLIのコマンド一覧を確認します。
+On Windows PowerShell, activate the environment with:
 
-\`\`\`bash
+~~~powershell
+.venv\Scripts\Activate.ps1
+~~~
+
+Check that the command-line interface is available:
+
+~~~bash
 blentopy --help
-\`\`\`
+~~~
 
-\`preview\`, \`render\`, \`demo\`, \`doctor\` などが表示されればCLIの読み込みができています。
+The help output should list the available commands: **doctor**, **demo**, **render**, and **preview**.
 
-\`preview\` が \`invalid choice\` と表示される場合、古いCLIがインストールされたままか、別のPython環境を使っている可能性があります。上記の再インストールを実行し、次を確認してください。
+If the CLI reports that **preview** is an invalid choice, the shell may be using an old entry point or a different Python environment. Reinstall from the repository root, then inspect the executable and installed package:
 
-\`\`\`bash
+~~~bash
 which blentopy
 python -m pip show blentopy
 blentopy --help
-\`\`\`
+~~~
 
-## Blenderの認識確認
+On Windows, use **where.exe blentopy** instead of **which blentopy**.
 
-BlenderがPATHから見つかるかを確認します。
+## Checking the Blender installation
 
-\`\`\`bash
+Ask blentopy to locate Blender:
+
+~~~bash
 blentopy doctor
-\`\`\`
+~~~
 
-Blenderが見つからない場合は実行ファイルを明示します。
+If Blender is not on your PATH, pass the executable path explicitly.
 
 ### macOS
 
-\`\`\`bash
+~~~bash
 blentopy doctor --blender /Applications/Blender.app/Contents/MacOS/Blender
-\`\`\`
+~~~
 
-Blenderのアプリ名やインストール場所を変更している場合は、その実際のパスを指定してください。環境変数 \`BLENTOPY_BLENDER\` にBlender実行ファイルのパスを設定することもできます。
+You can also set the **BLENTOPY_BLENDER** environment variable:
 
-\`\`\`bash
+~~~bash
 export BLENTOPY_BLENDER="/Applications/Blender.app/Contents/MacOS/Blender"
-\`\`\`
+~~~
 
-設定した環境変数は、同じターミナルから実行するコマンドに適用されます。
+This setting applies to commands launched from the same terminal session. On Windows PowerShell, use:
 
-## GUIプレビューを使う
+~~~powershell
+$env:BLENTOPY_BLENDER = "C:\Program Files\Blender Foundation\Blender 4.2\blender.exe"
+~~~
 
-GUIプレビューは、**Blenderを画面に表示しながらシーンを生成して、生成した .blend を開いた状態で確認・編集する機能**です。MP4レンダリングは行いません。
+Use the actual path for your Blender installation.
 
-### 基本コマンド
+## Previewing a scene in the Blender GUI
 
-リポジトリのルートで実行します。
+The **preview** command opens Blender as a desktop application, runs a scene script, saves an editable .blend file, and leaves Blender open for inspection and manual editing. It does **not** render an MP4.
 
-\`\`\`bash
+### Basic command
+
+Run this from the repository root:
+
+~~~bash
 blentopy preview examples/demo_scene.py
-\`\`\`
+~~~
 
-Blenderの実行ファイルがPATHにないmacOSでは、次のように指定します。
+On macOS, if Blender is not discoverable automatically:
 
-\`\`\`bash
-blentopy preview examples/demo_scene.py \\
+~~~bash
+blentopy preview examples/demo_scene.py \
   --blender /Applications/Blender.app/Contents/MacOS/Blender
-\`\`\`
+~~~
 
-### GUIプレビューの動作
+### What happens during preview
 
-1. blentopyがBlenderをGUIモードで起動します。
-2. Blender内でスクリプトを読み込み、許可されたStudio APIを実行します。
-3. シーン、カメラ、ライト、マテリアルなどを設定します。
-4. \`.blend\` ファイルを保存します。
-5. 保存成功をCLI側が確認します。
-6. BlenderのGUIは終了せず、開いたままになります。
-7. CLIに保存先とログファイル、BlenderのPIDが表示されます。
+1. blentopy launches Blender in GUI mode.
+2. Blender loads the blentopy worker and the scene script.
+3. The worker runs the supported Studio API calls to create the scene.
+4. The .blend project is saved.
+5. blentopy waits for confirmation that the project was saved successfully.
+6. The Blender GUI remains open so you can inspect and edit the scene.
+7. The CLI prints the saved project path, Blender process ID, and preview log path.
 
-Blenderが開いても、保存完了を確認する前に成功とは表示しません。
+The CLI does not report preview success merely because the Blender window appeared. It waits for the save confirmation.
 
-### プレビューのオプション
+### Preview options
 
-\`\`\`bash
-blentopy preview examples/demo_scene.py \\
-  --blender /Applications/Blender.app/Contents/MacOS/Blender \\
-  --blend-output renders/my_preview.blend \\
-  --workspace blentopy-workspace \\
-  --width 720 \\
-  --height 1280 \\
-  --fps 30 \\
-  --duration 8 \\
+~~~bash
+blentopy preview examples/demo_scene.py \
+  --blender /Applications/Blender.app/Contents/MacOS/Blender \
+  --blend-output renders/my_preview.blend \
+  --workspace blentopy-workspace \
+  --width 720 \
+  --height 1280 \
+  --fps 30 \
+  --duration 8 \
   --startup-timeout 120
-\`\`\`
+~~~
 
-| オプション | 説明 | デフォルト |
+| Option | Description | Default |
 |---|---|---|
-| \`script\` | 実行するシーンPythonファイル | 必須 |
-| \`--blender\` | Blender実行ファイルのパス | PATH / 環境変数から検索 |
-| \`--blend-output\` | 保存する.blendのパス | \`renders/<script名>.blend\` |
-| \`--workspace\` | 音声素材などの作業フォルダ | \`blentopy-workspace\` |
-| \`--width\` | 出力幅 (px) | 720 |
-| \`--height\` | 出力高さ (px) | 1280 |
-| \`--fps\` | フレームレート | 30 |
-| \`--duration\` | シーン長 (秒) | 8 |
-| \`--startup-timeout\` | シーン保存完了までの待機上限 (秒) | 120 |
+| **script** | Python scene script to execute | Required |
+| **--blender** | Path to the Blender executable | Automatic discovery |
+| **--blend-output** | Destination for the .blend project | renders/&lt;script-name&gt;.blend |
+| **--workspace** | Workspace directory, including audio assets | blentopy-workspace |
+| **--width** | Scene render width in pixels | 720 |
+| **--height** | Scene render height in pixels | 1280 |
+| **--fps** | Frame rate | 30 |
+| **--duration** | Scene duration in seconds | 8 |
+| **--startup-timeout** | Maximum time to wait for the preview scene to be saved | 120 seconds |
 
-起動タイムアウトは1〜600秒です。タイムアウトやシーン構築エラーが起きた場合、ログを確認してください。
+The startup timeout must be between 1 and 600 seconds. If Blender fails to start, exits early, or does not save the scene before the deadline, the command reports an error and includes the log path.
 
-### Blender内で確認・編集する
+### Inspecting and editing the project
 
-GUIプレビューが成功したらBlenderで次の操作ができます。
+After preview succeeds, you can use Blender normally:
 
-- 3D Viewでカメラ・オブジェクト・ライトを確認
-- Outlinerからオブジェクトを選択
-- Transformを手動変更
-- マテリアルを調整
-- Timelineでアニメーションを確認
-- Blender標準の保存操作で編集内容を保存
+- Inspect objects, cameras, and lights in the 3D Viewport.
+- Select objects in the Outliner.
+- Adjust transforms and materials.
+- Inspect keyframes in the Timeline.
+- Save manual changes using Blender's normal save commands.
 
-生成した .blend は通常のBlenderプロジェクトです。blentopy独自形式ではありません。
+The generated .blend file is a standard Blender project, not a proprietary blentopy format.
 
-## MP4をレンダリングする
+## Rendering an MP4
 
-GUIプレビューではなく、完成動画ファイルを書き出したい場合は \`render\` または \`demo\` コマンドを使います。
+Use **render** or **demo** when you want a video file rather than an interactive GUI preview.
 
-### サンプルをレンダリング
+### Render the built-in demo
 
-\`\`\`bash
+~~~bash
 blentopy demo
-\`\`\`
+~~~
 
-macOSでBlenderを明示する場合:
+On macOS, specify the Blender executable and output path explicitly:
 
-\`\`\`bash
-blentopy demo \\
-  --blender /Applications/Blender.app/Contents/MacOS/Blender \\
+~~~bash
+blentopy demo \
+  --blender /Applications/Blender.app/Contents/MacOS/Blender \
   --output renders/demo.mp4
-\`\`\`
+~~~
 
-### 自分のシーンスクリプトをレンダリング
+### Render your own scene script
 
-\`\`\`bash
-blentopy render examples/demo_scene.py \\
+~~~bash
+blentopy render examples/demo_scene.py \
   --output renders/custom.mp4
-\`\`\`
+~~~
 
-### Renderのオプション
+### Render options
 
-\`render\` と \`demo\` には共通オプションがあります。
+The **render** and **demo** commands share these options:
 
-| オプション | 説明 | デフォルト |
+| Option | Description | Default |
 |---|---|---|
-| \`--blender\` | Blender実行ファイル | 自動検出 |
-| \`--output\` | MP4出力先 | \`renders/<script名>.mp4\` |
-| \`--blend-output\` | Blenderプロジェクト保存先 | MP4と同じ名前の.blend |
-| \`--workspace\` | 素材の作業フォルダ | \`blentopy-workspace\` |
-| \`--width\` | 動画幅 | 720 |
-| \`--height\` | 動画高さ | 1280 |
-| \`--fps\` | フレームレート | 30 |
-| \`--duration\` | 動画の長さ (秒) | 8 |
-| \`--timeout\` | レンダリングの最大時間 (秒) | 3600 |
+| **--blender** | Path to the Blender executable | Automatic discovery |
+| **--output** | Destination for the MP4 video | renders/&lt;script-name&gt;.mp4 |
+| **--blend-output** | Destination for the editable Blender project | Same base name as the MP4 |
+| **--workspace** | Workspace directory for assets such as audio | blentopy-workspace |
+| **--width** | Video width in pixels | 720 |
+| **--height** | Video height in pixels | 1280 |
+| **--fps** | Frame rate | 30 |
+| **--duration** | Video duration in seconds | 8 |
+| **--timeout** | Maximum render time in seconds | 3600 |
 
-レンダリング設定は幅・高さ256〜1920px、総解像度419万px以下、FPS 1〜60、長さ1〜120秒、最大3600フレームの制限があります。
+The current render settings are constrained:
 
-## シーン用Pythonコードの書き方
+- Width and height must each be between 256 and 1920 pixels.
+- Total resolution must not exceed 4,194,304 pixels.
+- FPS must be between 1 and 60.
+- Duration must be between 1 and 120 seconds.
+- Total frame count must not exceed 3,600 frames.
 
-AIが生成するコードも、手動で書くコードも、**blentopyが許可しているStudio APIの呼び出しだけ**を使います。
+The renderer saves both the MP4 and the editable .blend project.
 
-Blenderの通常のPythonコードと異なり、スクリプト内で \`bpy\` を直接使うことはできません。シーン操作は \`studio\` 経由で行います。
+## Writing scene scripts
 
-### 最小のシーン
+Whether code is written by a person or generated by an AI, it must use only the Studio API and Python constructs accepted by blentopy's validator.
 
-\`\`\`python
+Unlike a normal Blender script, a blentopy scene script cannot access **bpy** directly. Scene operations are performed through the injected **studio** object. The **math** module is also provided; you do not need to import it.
+
+### Minimal scene example
+
+~~~python
 studio.set_timeline(duration_seconds=6, fps=30)
 studio.set_world_color((0.02, 0.03, 0.06))
 
@@ -285,93 +314,105 @@ studio.add_area_light(
     target=(0, 0, 1),
     energy=1400,
 )
-\`\`\`
+~~~
 
-### スクリプトの基本ルール
+### Scene-script rules
 
-- \`studio\` と \`math\` が使用可能です。自分でimportする必要はありません。
-- APIの引数はキーワード指定を推奨します。読みやすく、AIが修正しやすくなります。
-- オブジェクト名は一意にしてください。アニメーションで指定する名前は、作成時の名前と一致させます。
-- 座標とサイズはBlenderのワールド単位です。
-- 色はRGBまたはRGBA、各値0〜1です。
-- 回転アニメーションの角度はAPIに渡す時は度数です。
-- シーンの長さは秒、FPSはフレームレートです。
-- 3Dオブジェクトを配置しただけではカメラに映るとは限りません。カメラ位置・向き・画角を設定してください。
-- テキストのデフォルト回転は正面向け用の角度です。カメラの向きに応じて調整できます。
-- Pythonのimport、for/while、if、関数定義、ファイル操作などは現在の制限付き構文では使えません。
+- The names **studio** and **math** are provided automatically.
+- Prefer keyword arguments. They make scripts easier to read and revise.
+- Give objects unique names. Names used in animation calls must match the names used when the objects were created.
+- Locations and scales use Blender world units.
+- Colors use RGB or RGBA values, with each channel between 0 and 1.
+- Rotation values passed to **animate_rotation** are in degrees.
+- The text object's **rotation** argument is in radians.
+- Scene duration is measured in seconds; FPS means frames per second.
+- Creating an object does not guarantee that it will appear in the camera view. Set the camera position, target, and framing deliberately.
+- The default text rotation is intended to make text face forward; adjust it to match your camera.
+- Imports, loops, conditional statements, function definitions, file operations, and direct Blender API access are not supported.
 
-### AIにシーンを作ってもらう例
+### Prompting an AI to create a scene
 
-MCPを使わずにAIへコード生成を依頼する場合は、例えば次のように指示します。
+When you are not using MCP, you can ask an AI to generate a script with a prompt such as:
 
-> blentopyのStudio APIだけを使って、8秒の縦動画向け3Dシーンを作ってください。冒頭から最後までオブジェクトの動きがあり、カメラ・ライト・マテリアルも設定してください。Pythonのimport、bpy、ループ、関数定義は禁止。コードだけ出してください。
+> Create an animated 3D scene for an 8-second vertical video using only the blentopy Studio API. Include continuous object motion, a camera, lighting, and materials. Do not use imports, bpy, loops, conditional statements, or function definitions. Return only the scene script.
 
-生成されたコードを \`examples/my_scene.py\` などに保存し、GUIプレビューで確認します。
+Save the generated code to **examples/my_scene.py**, then preview it:
 
-\`\`\`bash
+~~~bash
 blentopy preview examples/my_scene.py
-\`\`\`
+~~~
 
-## Studio API リファレンス
+## Studio API reference
 
-### 共通の値
+### Common values
 
-| 値 | 意味 | 例 |
+| Value | Meaning | Example |
 |---|---|---|
-| \`location\` | 位置 X/Y/Z | \`(0, 0, 2)\` |
-| \`scale\` | X/Y/Zの倍率 | \`(1, 2, 1)\` |
-| \`target\` | カメラ・ライトが向く座標 | \`(0, 0, 0)\` |
-| \`color\` | RGB/RGBAの色、0〜1 | \`(0.2, 0.5, 1.0)\` |
-| \`size\` | 形状の大きさ、またはライトサイズ | APIごとに意味が異なる |
-| \`start_frame/end_frame\` | アニメーションの開始・終了フレーム | \`1, 120\` |
-| \`start_seconds\` | 音声の開始時刻 (秒) | \`2.5\` |
+| **location** | X/Y/Z position | (0, 0, 2) |
+| **scale** | X/Y/Z scale | (1, 2, 1) |
+| **target** | Point a camera or light should face | (0, 0, 0) |
+| **color** | RGB or RGBA color, channels from 0 to 1 | (0.2, 0.5, 1.0) |
+| **size** | Object size or light size; meaning depends on the method | Method-specific |
+| **start_frame / end_frame** | Animation start and end frames | 1, 120 |
+| **start_seconds** | Audio start time in seconds | 2.5 |
 
-### タイムライン・ワールド
+### Timeline and world
 
-\`\`\`python
+~~~python
 studio.set_timeline(duration_seconds=8, fps=30)
 studio.set_world_color((0.025, 0.03, 0.05))
-\`\`\`
+~~~
 
-- \`set_timeline(duration_seconds, fps=None)\`: シーンの長さとFPSを設定
-- \`set_world_color(color)\`: 背景/ワールドの色を設定
+- **set_timeline(duration_seconds, fps=None)** sets the content scene duration and frame rate.
+- **set_world_color(color)** sets the world/background color.
 
-### 形状
+### Primitive objects
 
-\`\`\`python
+~~~python
 studio.add_plane(
-    "Ground", location=(0, 0, 0),
-    scale=(5, 5, 1), color=(0.08, 0.10, 0.14)
+    "Ground",
+    location=(0, 0, 0),
+    scale=(5, 5, 1),
+    color=(0.08, 0.10, 0.14),
 )
 
 studio.add_cube(
-    "Cube", location=(0, 0, 1),
-    scale=(1, 1, 1), color=(0.15, 0.45, 0.9),
-    metallic=0.15, roughness=0.35
+    "Cube",
+    location=(0, 0, 1),
+    scale=(1, 1, 1),
+    color=(0.15, 0.45, 0.9),
+    metallic=0.15,
+    roughness=0.35,
 )
 
 studio.add_uv_sphere(
-    "Sphere", location=(2, 0, 1),
-    scale=(1, 1, 1), color=(0.1, 0.65, 0.85)
+    "Sphere",
+    location=(2, 0, 1),
+    scale=(1, 1, 1),
+    color=(0.1, 0.65, 0.85),
 )
 
 studio.add_cylinder(
-    "Cylinder", location=(-2, 0, 1),
-    scale=(1, 1, 1), color=(0.12, 0.16, 0.23),
-    vertices=64
+    "Cylinder",
+    location=(-2, 0, 1),
+    scale=(1, 1, 1),
+    color=(0.12, 0.16, 0.23),
+    vertices=64,
 )
-\`\`\`
+~~~
 
-- \`add_plane(name, location, scale, color)\`
-- \`add_cube(name, location, scale, color, metallic, roughness)\`
-- \`add_uv_sphere(name, location, scale, color)\`
-- \`add_cylinder(name, location, scale, color, vertices)\`
+| Method | Arguments |
+|---|---|
+| **add_plane** | name, location=(0, 0, 0), scale=(5, 5, 1), color=(0.08, 0.10, 0.14) |
+| **add_cube** | name, location=(0, 0, 0), scale=(1, 1, 1), color=(0.15, 0.45, 0.9), metallic=0.15, roughness=0.35 |
+| **add_uv_sphere** | name, location=(0, 0, 0), scale=(1, 1, 1), color=(0.1, 0.65, 0.85) |
+| **add_cylinder** | name, location=(0, 0, 0), scale=(1, 1, 1), color=(0.12, 0.16, 0.23), vertices=64 |
 
-各メソッドは作成したオブジェクト名を返します。球はスムーズシェーディング、円柱もスムーズ設定を行います。円柱の頂点数は12〜128の範囲で調整されます。
+Each method returns the created object's name. UV spheres use smooth shading. Cylinders also use smooth shading; their vertex count is clamped to the range 12–128.
 
-### テキスト
+### Text
 
-\`\`\`python
+~~~python
 studio.add_text(
     "Title",
     "HELLO BLENDER",
@@ -382,19 +423,19 @@ studio.add_text(
     align="CENTER",
     extrude=0,
 )
-\`\`\`
+~~~
 
-\`add_text(name, body, location, size, color, rotation, align, extrude)\`
+**add_text(name, body, location=(0, 0, 0), size=0.5, color=(0.95, 0.97, 1), rotation=(1.57079632679, 0, 0), align="CENTER", extrude=0)**
 
-- \`body\`: 表示する文字
-- \`size\`: テキストのサイズ
-- \`rotation\`: XYZの回転（ラジアン）
-- \`align\`: \`LEFT\`、\`CENTER\`、\`RIGHT\`
-- \`extrude\`: 文字の厚み。0以上
+- **body**: Text to display.
+- **size**: Text size.
+- **rotation**: X/Y/Z rotation in radians.
+- **align**: LEFT, CENTER, or RIGHT. Unsupported values fall back to CENTER.
+- **extrude**: Text extrusion depth; values below zero are clamped to zero.
 
-### カメラ
+### Camera
 
-\`\`\`python
+~~~python
 studio.add_camera(
     "Camera",
     location=(0, -12, 4),
@@ -402,19 +443,19 @@ studio.add_camera(
     lens=50,
     orthographic_scale=7,
 )
-\`\`\`
+~~~
 
-\`add_camera(name, location, target, lens, orthographic_scale=None)\`
+**add_camera(name, location=(0, -12, 4), target=(0, 0, 0), lens=50, orthographic_scale=None)**
 
-- \`location\`: カメラ位置
-- \`target\`: 向けたい場所
-- \`lens\`: 焦点距離（10〜300に制限）
-- \`orthographic_scale\`: 指定すると正投影カメラになります。省略すると通常の透視投影です。
-- \`set_active_camera(name)\`: 既存のCameraオブジェクトをアクティブカメラに指定します。
+- **location**: Camera position.
+- **target**: Point the camera should face. It must differ from the camera location.
+- **lens**: Focal length, clamped to the range 10–300.
+- **orthographic_scale**: When provided, switches the camera to orthographic projection. When omitted, perspective projection is used.
+- **set_active_camera(name)** sets an existing camera object as the active camera.
 
-### ライト
+### Area light
 
-\`\`\`python
+~~~python
 studio.add_area_light(
     "KeyLight",
     location=(-4, -5, 6),
@@ -423,15 +464,15 @@ studio.add_area_light(
     size=5,
     color=(1, 1, 1),
 )
-\`\`\`
+~~~
 
-\`add_area_light(name, location, target, energy, size, color)\`
+**add_area_light(name, location=(4, -5, 7), target=(0, 0, 0), energy=1200, size=5, color=(1, 1, 1))**
 
-Area Lightを指定位置に作成し、target方向へ向けます。
+Creates an Area Light at the specified location and points it toward **target**. Energy is clamped to a non-negative value, and light size is clamped to at least 0.1.
 
-### アニメーション
+### Animation
 
-\`\`\`python
+~~~python
 studio.animate_location(
     "Cube",
     start_location=(0, 0, 1),
@@ -455,42 +496,42 @@ studio.animate_scale(
     start_frame=1,
     end_frame=120,
 )
-\`\`\`
+~~~
 
-- \`animate_location(name, start_location, end_location, start_frame=1, end_frame=None)\`
-- \`animate_rotation(name, start_degrees, end_degrees, start_frame=1, end_frame=None)\`
-- \`animate_scale(name, start_scale, end_scale, start_frame=1, end_frame=None)\`
+- **animate_location(name, start_location, end_location, start_frame=1, end_frame=None)**
+- **animate_rotation(name, start_degrees, end_degrees, start_frame=1, end_frame=None)**
+- **animate_scale(name, start_scale, end_scale, start_frame=1, end_frame=None)**
 
-\`end_frame\` を省略するとシーンの最終フレームが使われます。回転の引数は度数で指定し、内部でラジアンに変換されます。アニメーション対象のオブジェクトは先に作成しておく必要があります。
+If **end_frame** is omitted, the final frame of the content scene is used. Rotation arguments are specified in degrees and converted to radians internally. The target object must already exist.
 
-### math
+### Math helpers
 
-使用できる定数・関数は次の通りです。
+The following constants and functions are exposed through **math**:
 
-- 定数: \`math.pi\`、\`math.tau\`、\`math.e\`
-- 関数: \`math.sin\`、\`math.cos\`、\`math.tan\`、\`math.radians\`、\`math.degrees\`、\`math.sqrt\`
+- Constants: **math.pi**, **math.tau**, **math.e**
+- Functions: **math.sin**, **math.cos**, **math.tan**, **math.radians**, **math.degrees**, **math.sqrt**
 
-ただし、現状はループや条件分岐が使えないため、関数を組み合わせて単純な数値計算を行う用途に限定されます。
+The validator currently does not allow loops, conditional statements, or arithmetic operators. Math helpers can be called with supported literal or variable arguments, but they do not turn the script language into general-purpose Python.
 
-## 音声を使う
+## Using audio
 
-blentopyは音声やBGMを生成しません。手持ちの音声ファイルを出力シーンのVideo Sequence Editorに配置します。
+blentopy does not generate narration, sound effects, or music. It can place an existing audio file into the output scene's Video Sequence Editor.
 
-### 1. 音声ファイルをworkspaceに置く
+### 1. Put the audio file inside the workspace
 
-例えば次の場所に音声を置きます。
+For example:
 
-\`\`\`text
+~~~text
 blentopy-workspace/
 └── assets/
     └── narration.wav
-\`\`\`
+~~~
 
-workspaceはプレビュー・レンダリング時に指定した作業フォルダです。デフォルトはプロジェクトの実行場所にある \`blentopy-workspace\` です。
+The workspace is the directory supplied with **--workspace**. Its default is **blentopy-workspace** in the current working directory.
 
-### 2. スクリプトから追加
+### 2. Add the audio from your scene script
 
-\`\`\`python
+~~~python
 studio.add_audio(
     "Narration",
     "assets/narration.wav",
@@ -498,50 +539,52 @@ studio.add_audio(
     start_seconds=0,
     volume=1,
 )
-\`\`\`
+~~~
 
-相対パスはworkspace内を基準にします。絶対パスを使用する場合も、workspace内のファイルでなければなりません。workspace外の音声は拒否されます。
+Relative file paths are resolved inside the workspace. Absolute paths are also accepted only when the resolved file is inside the workspace. Files outside the workspace are rejected.
 
-\`add_audio(name, filepath, channel=2, start_seconds=0, volume=1)\`
+**add_audio(name, filepath, channel=2, start_seconds=0, volume=1)**
 
-- \`name\`: 音声ストリップ名
-- \`filepath\`: workspace内の音声ファイル
-- \`channel\`: VSEチャンネル。最低2
-- \`start_seconds\`: 音声を開始する秒数
-- \`volume\`: 音量0〜1
+- **name**: Name of the audio strip.
+- **filepath**: Path to an existing audio file inside the workspace.
+- **channel**: VSE channel. Values are clamped to at least 2.
+- **start_seconds**: Audio start time in seconds.
+- **volume**: Initial volume, clamped to the range 0–1.
 
-### 3. 音量を変化させる
+### 3. Animate audio volume
 
-\`\`\`python
+~~~python
 studio.fade_audio("Narration", 0, 1, 1, 20)
-\`\`\`
+~~~
 
-\`fade_audio(name, start_volume, end_volume, start_frame, end_frame)\` は指定フレーム間に音量のキーフレームを設定します。例では1フレームから20フレームにかけて音量0から1へ変化させます。
+**fade_audio(name, start_volume, end_volume, start_frame, end_frame)** inserts volume keyframes at the specified frames. In the example, the volume changes from 0 to 1 between frames 1 and 20.
 
-## MCPでチャットAIと接続する
+The rendered output scene combines the 3D content scene strip with audio strips. The 3D content scene and the output/compositing scene are separate Blender scenes.
 
-MCP (Model Context Protocol) を使うと、MCP対応のAIクライアントからローカルのblentopyコマンドを呼び出せます。利用するチャットアプリ側にローカルMCPサーバー起動機能が必要です。
+## Connecting an MCP chat client
 
-### 1. MCP追加依存をインストール
+The Model Context Protocol (MCP) lets an MCP-compatible chat application call the local blentopy server. Your chat application must support launching a local stdio MCP server.
 
-\`\`\`bash
+### 1. Install the optional MCP dependency
+
+~~~bash
 source .venv/bin/activate
 python -m pip install -e '.[mcp]'
-\`\`\`
+~~~
 
-### 2. MCPサーバーを起動してみる
+### 2. Verify the MCP command
 
-\`\`\`bash
+~~~bash
 blentopy-mcp
-\`\`\`
+~~~
 
-サーバーはstdio経由で通信します。通常はこのコマンドをMCPクライアントの設定に登録して、そのクライアントから起動してもらいます。ターミナルで単独起動した場合は、終了するまで入力待ちになることがあります。
+The server communicates over standard input/output (stdio). Normally, you register this command in the MCP client's configuration and let the client launch it. Running it directly in a terminal may appear to wait for input; that is expected for a stdio server.
 
-### 3. MCPクライアントの設定
+### 3. Configure your MCP client
 
-MCP対応アプリの設定ファイルにサーバーを登録します。実際の仮想環境・リポジトリ・workspaceのパスに置き換えてください。
+Add a server entry to the configuration file used by your MCP-compatible application. Replace the example paths with the real paths on your machine.
 
-\`\`\`json
+~~~json
 {
   "mcpServers": {
     "blentopy": {
@@ -554,190 +597,211 @@ MCP対応アプリの設定ファイルにサーバーを登録します。実�
     }
   }
 }
-\`\`\`
+~~~
 
-- \`command\`: 仮想環境にインストールされた \`blentopy-mcp\` の絶対パス
-- \`BLENTOPY_WORKSPACE\`: 素材や出力を保存するworkspace
-- \`BLENTOPY_BLENDER\`: Blenderの実行ファイルパス
+- **command**: Absolute path to the blentopy-mcp executable inside the virtual environment.
+- **BLENTOPY_WORKSPACE**: Workspace for source assets and generated files.
+- **BLENTOPY_BLENDER**: Path to the Blender executable.
 
-相対パスや \`~\` は、MCPクライアントによって解釈が異なる場合があります。絶対パスを推奨します。
+Absolute paths are recommended. Relative paths and home-directory shortcuts may be interpreted differently by different MCP clients.
 
-### 4. MCPで提供されるツール
+### 4. Available MCP tools
 
-| ツール名 | 内容 |
+| Tool | Description |
 |---|---|
-| \`blentopy_environment\` | Blenderのバージョン、実行パス、workspaceを確認 |
-| \`blentopy_preview_scene\` | GUIを開いてシーンを生成し、.blendを保存。MP4はレンダリングしない |
-| \`blentopy_render_scene\` | シーンを実行してMP4と.blendを出力 |
-| \`blentopy_list_outputs\` | 最近の出力ファイルを一覧表示 |
+| **blentopy_environment** | Detects Blender and reports its version, executable path, and workspace. |
+| **blentopy_preview_scene** | Opens Blender GUI, runs a scene script, saves a .blend project, and leaves Blender open. Does not render an MP4. |
+| **blentopy_render_scene** | Runs a scene script and exports an MP4 and .blend project. |
+| **blentopy_list_outputs** | Lists recent files in the workspace's renders directory. |
 
-### 5. AIへの指示例
+The render and preview tools accept Python source code as a string. The MCP server validates it with the same restricted scene-script validator used by the CLI.
 
-MCP接続後、チャットで次のように指示できます。
+### 5. Example requests to the connected AI
 
-- 「Blender GUIで確認したいので、まずプレビューを実行して」
-- 「8秒のシーンを作って、青い球が上下に移動するアニメーションを追加して」
-- 「カメラを少し引いて、全体が見えるように修正して」
-- 「プレビューを実行して、生成された.blendを開いたままにして」
-- 「このシーンをMP4として書き出して」
+Once the MCP server is connected, you can ask the chat client to:
 
-MCPクライアントがツールを呼び出すかどうかは、クライアントの設定とAIの判断に依存します。接続設定だけでAIが常に自動実行するわけではありません。
+- "Run a Blender GUI preview so I can inspect the scene."
+- "Create an eight-second scene with a blue sphere moving up and down."
+- "Move the camera back slightly so the entire object is visible."
+- "Preview the scene and leave the generated Blender project open."
+- "Render this scene to an MP4."
 
-## 出力ファイル
+Whether a tool runs automatically depends on the MCP client's configuration and the AI's tool-use decisions. Registering the server does not guarantee that every request will execute without user approval.
 
-### CLIプレビューのデフォルト
+## Output files
 
-\`\`\`text
+### CLI preview
+
+By default, a preview creates files similar to:
+
+~~~text
 renders/
 ├── demo_scene.blend
-└── demo_scene-<識別子>.preview.log
-\`\`\`
+└── demo_scene-<unique-id>.preview.log
+~~~
 
-### レンダリング
+The exact log filename contains a generated identifier.
 
-\`\`\`text
+### CLI render
+
+~~~text
 renders/
 ├── demo.mp4
 └── demo.blend
-\`\`\`
+~~~
 
-### MCP経由の出力
+### MCP-generated files
 
-workspaceを指定している場合、そのworkspace内にスクリプトとレンダリング結果が保存されます。
+MCP scripts and output files are stored in the configured workspace:
 
-\`\`\`text
+~~~text
 blentopy-workspace/
 ├── scripts/
-│   └── <シーン名>-<日時>.py
+│   └── <scene-name>-<timestamp>.py
 └── renders/
-    ├── <シーン名>-<日時>.blend
-    └── <シーン名>-<日時>.mp4
-\`\`\`
+    ├── <scene-name>-<timestamp>.blend
+    └── <scene-name>-<timestamp>.mp4
+~~~
 
-GUIプレビューではMP4ファイルを作成しません。ログはプレビュー時にBlenderの標準出力・エラー出力を保存するファイルです。問題が起きた場合はログの末尾を確認してください。
+A GUI preview does not create an MP4. The preview log captures Blender's standard output and standard error. When something goes wrong, inspect the end of that log.
 
-## トラブルシューティング
+## Troubleshooting
 
-### \`blentopy: command not found\`
+### blentopy command not found
 
-仮想環境が有効になっていないか、インストールが完了していません。
+The virtual environment may not be active, or the package may not have been installed successfully.
 
-\`\`\`bash
+~~~bash
 source .venv/bin/activate
 python -m pip install -e . --force-reinstall
-\`\`\`
+~~~
 
-### \`invalid choice: preview\`
+On Windows PowerShell:
 
-古いCLIエントリーポイントを使用している可能性があります。
+~~~powershell
+.venv\Scripts\Activate.ps1
+python -m pip install -e . --force-reinstall
+~~~
 
-\`\`\`bash
+### preview is an invalid choice
+
+The shell may be using an outdated CLI entry point.
+
+~~~bash
 source .venv/bin/activate
 git pull --ff-only origin main
 python -m pip install -e . --force-reinstall
 which blentopy
 blentopy --help
-\`\`\`
+~~~
 
-### Blenderが見つからない
+On Windows, use **where.exe blentopy** instead of **which blentopy**.
 
-\`\`\`bash
+### Blender cannot be found
+
+Pass the executable path to the doctor command:
+
+~~~bash
 blentopy doctor --blender "/Applications/Blender.app/Contents/MacOS/Blender"
-\`\`\`
+~~~
 
-Blenderアプリが別の場所にある場合は、実際のパスを指定します。
+If Blender is installed elsewhere, use its actual executable path. You can also configure **BLENTOPY_BLENDER**.
 
-### GUIプレビューが起動しない・途中で終了する
+### GUI preview does not start or exits early
 
-1. Blender実行ファイルのパスが正しいか \`doctor\` で確認。
-2. Blenderが通常のGUIとして単独で起動するか確認。
-3. \`--startup-timeout\` を増やして試す。
-4. 出力に表示された \`.preview.log\` ファイルを開き、エラーの末尾を確認。
-5. 仮想環境のblentopyが最新か確認。
+1. Check the Blender executable path with **blentopy doctor**.
+2. Confirm that Blender can start normally as a desktop application.
+3. Increase **--startup-timeout** if Blender needs more time to start.
+4. Open the .preview.log file printed by the CLI and inspect the final error messages.
+5. Confirm that the blentopy package in the active virtual environment is up to date.
 
-\`\`\`bash
-blentopy preview examples/demo_scene.py \\
-  --blender "/Applications/Blender.app/Contents/MacOS/Blender" \\
+Example:
+
+~~~bash
+blentopy preview examples/demo_scene.py \
+  --blender "/Applications/Blender.app/Contents/MacOS/Blender" \
   --startup-timeout 180
-\`\`\`
+~~~
 
-GUIプレビューはデスクトップセッションが必要です。SSHなど画面のない環境ではGUI起動ができない場合があります。
+GUI preview requires a desktop session. It may not work in a headless environment such as an SSH session without a display.
 
-### \`Unknown Studio API method\` / \`Unsupported Python syntax\`
+### Unknown Studio API method or unsupported Python syntax
 
-スクリプトが現在許可されていないAPIやPython構文を使用しています。使用できるAPI一覧を参照して書き直してください。
+The script uses an API method or Python construct that is not currently allowed. Refer to the Studio API reference and rewrite the script using supported calls.
 
-現在許可されていない例:
+For example, the following is not allowed:
 
-\`\`\`python
+~~~python
 import bpy
-for i in range(10):
+
+for index in range(10):
     ...
-\`\`\`
+~~~
 
-代わりに、必要なAPI呼び出しを直接列挙します。
+Instead, write the required Studio API calls explicitly.
 
-### カメラにオブジェクトが映らない
+### Objects do not appear in the camera view
 
-- Cameraのlocationを確認
-- targetがオブジェクト方向を向いているか確認
-- オブジェクトのlocation/scaleを確認
-- カメラのlensまたはorthographic_scaleを調整
-- GUIプレビューでCamera Viewに切り替えて確認
+- Check the camera's location.
+- Check that the camera target points toward the objects.
+- Check object locations and scales.
+- Adjust the camera lens or orthographic scale.
+- Switch to Camera View in the Blender GUI to inspect the framing.
 
-### レンダリングに時間がかかる
+### Rendering takes too long
 
-- オブジェクト数を減らす
-- 解像度を下げる
-- 動画の秒数を短くする
-- FPSを下げる
-- まずGUIプレビューで構図を確認してからレンダリングする
+- Reduce the number of objects.
+- Lower the output resolution.
+- Shorten the video duration.
+- Reduce the frame rate.
+- Use GUI preview to check composition before starting a full render.
 
-## テスト
+## Tests
 
-Blenderがなくても、Pythonのユニットテストと構文チェックを実行できます。
+The Python unit tests and syntax compilation can be run without Blender:
 
-\`\`\`bash
+~~~bash
 source .venv/bin/activate
 PYTHONPATH=src python -m unittest discover -s tests -v
 python -m compileall -q src tests examples
-\`\`\`
+~~~
 
-実際のGUIプレビュー・MP4レンダリングには、インストールされたBlenderとGUI環境が必要です。
+Actual GUI preview and MP4 rendering require an installed Blender executable. GUI preview also requires a usable desktop session.
 
-## 安全性について
+## Security model
 
-blentopyのシーンスクリプトは通常のPythonより狭い構文に制限されています。現在許可されているもの:
+Scene scripts are restricted to a deliberately small subset of Python. The validator currently accepts:
 
-- ドキュメント化された \`studio.*\` APIの呼び出し
-- 数値、文字列、真偽値などのリテラル
-- 単純な変数代入
-- List、Tuple、Dict
-- 数値の符号
-- 一部の \`math.*\` 定数と関数
+- Calls to documented studio API methods.
+- Supported math constants and functions.
+- Simple variable assignments.
+- String, numeric, boolean, and None literals.
+- Lists, tuples, and dictionaries.
+- Unary plus and minus.
 
-拒否されるもの:
+The validator rejects:
 
-- \`import\`
-- \`bpy\` への直接アクセス
-- ファイルシステム操作
-- Shellコマンド
-- ネットワークアクセス
-- ループや条件分岐
-- 関数・クラス定義
-- 属性チェーン
+- Imports.
+- Direct access to bpy.
+- Filesystem operations.
+- Shell commands.
+- Network access.
+- Loops and conditional statements.
+- Function and class definitions.
+- Attribute chaining and calls on arbitrary variables.
+- Unsupported Python syntax and unknown Studio API methods.
 
-**この構文制限はOSレベルのサンドボックスではありません。** Blenderや依存ソフトウェアはローカルユーザー権限で実行されます。未知の.blendファイルや素材を安全とみなさないでください。
+**These restrictions are not an operating-system sandbox.** Blender and its dependencies still run with the permissions of the local user. Do not treat untrusted .blend files, scripts, or source assets as safe.
 
-## 現在の制限
+## Current limitations
 
-- 基本プリミティブ中心の3D制作
-- AIモデル自体は同梱しない
-- TTS・音楽・画像生成などは別途必要
-- 高度なモデリング、リギング、キャラクター制作は未対応
-- AIによる自動リトライ・エラー修正機構は未実装
-- Blenderバージョン間のVSE API差異は検証が必要
-- GUIプレビューと実際のレンダリングは使用するMac上で確認が必要
+- The current API focuses on basic primitives and simple scene assembly.
+- No AI model is bundled with blentopy.
+- Text-to-speech, music generation, and image generation require separate tools.
+- Advanced modeling, rigging, and character workflows are not implemented.
+- Automatic AI retries and error repair are not implemented.
+- Blender's VSE API can differ between Blender versions and requires compatibility testing.
+- GUI preview and rendering still need to be verified on the target machine and Blender installation.
 
 ## License
 
