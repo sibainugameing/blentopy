@@ -616,6 +616,8 @@ Add a server entry to the configuration file used by your MCP-compatible applica
 
 Absolute paths are recommended. Relative paths and home-directory shortcuts may be interpreted differently by different MCP clients.
 
+At startup, the MCP server loads **docs/AI_SYSTEM_PROMPT.md** and sends it as server instructions to the connected AI client. This gives the model the scene language, API reference, and cinematic quality rules without requiring you to paste the entire document into every request. Keep this file available in the repository checkout when using the editable installation.
+
 ### 4. Available MCP tools
 
 | Tool | Description |
