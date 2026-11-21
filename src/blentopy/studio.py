@@ -6,6 +6,8 @@ import math
 from pathlib import Path
 from typing import Sequence
 
+from .resource_limits import ensure_scene_capacity
+
 Color = Sequence[float]
 Vector3 = Sequence[float]
 
@@ -118,6 +120,20 @@ class Studio:
         self._audio_strips = {}
         if self._bpy.context.window is not None:
             self._bpy.context.window.scene = self.scene
+
+    def _check_scene_capacity(
+        self,
+        *,
+        objects: int = 0,
+        polygons: int = 0,
+        modifiers: int = 0,
+    ) -> None:
+        ensure_scene_capacity(
+            self.scene,
+            added_objects=objects,
+            added_polygons=polygons,
+            added_modifiers=modifiers,
+        )
 
     def _choose_render_engine(self) -> str:
         for engine in ("BLENDER_EEVEE_NEXT", "BLENDER_EEVEE", "CYCLES"):
@@ -281,6 +297,7 @@ class Studio:
         scale: Vector3 = (5, 5, 1), color: Color = (0.08, 0.10, 0.14),
         roughness: float = 0.8,
     ) -> str:
+        self._check_scene_capacity(objects=1, polygons=1)
         self._bpy.ops.mesh.primitive_plane_add(size=1, location=location)
         return self._finish_mesh(name, location, scale, color, 0, roughness)
 
@@ -292,6 +309,11 @@ class Studio:
         emission_color: Color | None = None, emission_strength: float = 0,
         coat: float = 0,
     ) -> str:
+        self._check_scene_capacity(
+            objects=1,
+            polygons=6 * (1 + 2 * 3) if bevel > 0 else 6,
+            modifiers=2 if bevel > 0 else 0,
+        )
         self._bpy.ops.mesh.primitive_cube_add(size=1, location=location)
         return self._finish_mesh(
             name, location, scale, color, metallic, roughness,
@@ -307,9 +329,13 @@ class Studio:
         emission_color: Color | None = None, emission_strength: float = 0,
         coat: float = 0,
     ) -> str:
+        segments = max(16, min(int(segments), 128))
+        rings = max(8, min(int(ring_count), 64))
+        self._check_scene_capacity(
+            objects=1, polygons=segments * max(1, rings - 1) * 2
+        )
         self._bpy.ops.mesh.primitive_uv_sphere_add(
-            segments=max(16, min(int(segments), 128)),
-            ring_count=max(8, min(int(ring_count), 64)), location=location,
+            segments=segments, ring_count=rings, location=location,
         )
         return self._finish_mesh(
             name, location, scale, color, metallic, roughness, smooth=True,
@@ -322,8 +348,12 @@ class Studio:
         subdivisions: int = 3, metallic: float = 0, roughness: float = 0.4,
         emission_color: Color | None = None, emission_strength: float = 0,
     ) -> str:
+        subdivisions = max(1, min(int(subdivisions), 6))
+        self._check_scene_capacity(
+            objects=1, polygons=20 * (4 ** subdivisions)
+        )
         self._bpy.ops.mesh.primitive_ico_sphere_add(
-            subdivisions=max(1, min(int(subdivisions), 6)), radius=1, location=location,
+            subdivisions=subdivisions, radius=1, location=location,
         )
         return self._finish_mesh(
             name, location, scale, color, metallic, roughness,
@@ -336,9 +366,15 @@ class Studio:
         vertices: int = 64, metallic: float = 0.1, roughness: float = 0.35,
         bevel: float = 0.025, bevel_segments: int = 3,
     ) -> str:
+        vertices = max(12, min(int(vertices), 128))
+        bevel_modifiers = 2 if bevel > 0 else 0
+        self._check_scene_capacity(
+            objects=1,
+            polygons=(vertices + 2) * (1 + 2 * max(1, bevel_segments)) if bevel_modifiers else vertices + 2,
+            modifiers=bevel_modifiers,
+        )
         self._bpy.ops.mesh.primitive_cylinder_add(
-            vertices=max(12, min(int(vertices), 128)), radius=1,
-            depth=1, location=location,
+            vertices=vertices, radius=1, depth=1, location=location,
         )
         return self._finish_mesh(
             name, location, scale, color, metallic, roughness, smooth=True,
@@ -352,8 +388,15 @@ class Studio:
         vertices: int = 48, bevel: float = 0.015,
         metallic: float = 0, roughness: float = 0.55,
     ) -> str:
+        vertices = max(12, min(int(vertices), 128))
+        bevel_modifiers = 2 if bevel > 0 else 0
+        self._check_scene_capacity(
+            objects=1,
+            polygons=(vertices + 1) * (1 + 2 * 2) if bevel_modifiers else vertices + 1,
+            modifiers=bevel_modifiers,
+        )
         self._bpy.ops.mesh.primitive_cone_add(
-            vertices=max(12, min(int(vertices), 128)),
+            vertices=vertices,
             radius1=max(0, float(radius1)), radius2=max(0, float(radius2)),
             depth=max(0.01, float(depth)), location=location,
         )
@@ -371,9 +414,14 @@ class Studio:
         roughness: float = 0.25, emission_color: Color | None = None,
         emission_strength: float = 0, coat: float = 0.2,
     ) -> str:
+        major_segments = max(12, min(int(major_segments), 128))
+        minor_segments = max(6, min(int(minor_segments), 64))
+        self._check_scene_capacity(
+            objects=1, polygons=major_segments * minor_segments
+        )
         self._bpy.ops.mesh.primitive_torus_add(
-            major_segments=max(12, min(int(major_segments), 128)),
-            minor_segments=max(6, min(int(minor_segments), 64)),
+            major_segments=major_segments,
+            minor_segments=minor_segments,
             major_radius=max(0.01, float(major_radius)),
             minor_radius=max(0.005, min(float(minor_radius), float(major_radius) * 0.95)),
             location=location, rotation=rotation,
@@ -391,6 +439,7 @@ class Studio:
         align: str = "CENTER", extrude: float = 0,
         emission_color: Color | None = None, emission_strength: float = 0,
     ) -> str:
+        self._check_scene_capacity(objects=1)
         curve = self._bpy.data.curves.new(name=f"{name} Font", type="FONT")
         curve.body = str(body)
         curve.size = float(size)
@@ -418,6 +467,7 @@ class Studio:
         orthographic_scale: float | None = None,
         focus_object_name: str | None = None, dof_fstop: float = 2.8,
     ) -> str:
+        self._check_scene_capacity(objects=1)
         data = self._bpy.data.cameras.new(f"{name} Data")
         camera = self._bpy.data.objects.new(name, data)
         self.scene.collection.objects.link(camera)
@@ -446,6 +496,7 @@ class Studio:
         size: float = 5, color: Color = (1, 1, 1),
         shape: str = "DISK", size_y: float = 5,
     ) -> str:
+        self._check_scene_capacity(objects=1)
         data = self._bpy.data.lights.new(f"{name} Data", type="AREA")
         data.energy = max(0, float(energy))
         supported_shapes = {"DISK", "SQUARE", "RECTANGLE", "ELLIPSE"}
@@ -467,6 +518,7 @@ class Studio:
         energy: float = 2.0, color: Color = (1, 0.92, 0.78),
         angle: float = 0.08,
     ) -> str:
+        self._check_scene_capacity(objects=1)
         data = self._bpy.data.lights.new(f"{name} Data", type="SUN")
         data.energy = max(0, float(energy))
         data.color = self._rgba(color)[:3]

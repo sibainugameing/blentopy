@@ -522,3 +522,8 @@ cable = scene.curve(
 ```
 
 The restricted Python contract remains in force: no imports, raw `bpy`, filesystem/process/network access, or undocumented methods. This expands modeling capability without granting generated scripts general access to the user's computer.
+
+
+## 18. Resource budgets
+
+The current scene budgets are 1,000 Blender objects, 300,000 estimated post-modifier polygons, and 1,500 modifiers. Budget checks happen before new objects and modifiers are created. Subdivision, Array, Mirror, Solidify, Bevel, and Boolean modifiers contribute to the polygon estimate. Keep scenes below these limits; reducing object count alone does not make a dense modifier stack safe.

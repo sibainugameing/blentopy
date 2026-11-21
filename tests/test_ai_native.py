@@ -89,6 +89,60 @@ class SceneTimebaseTests(unittest.TestCase):
         self.assertEqual(studio.scene._fps, 24)
 
 
+
+class ResourceLimitTests(unittest.TestCase):
+    def test_scene_resource_usage_includes_objects_polygons_and_modifiers(self):
+        from blentopy.resource_limits import scene_resource_usage
+
+        class Polygons:
+            def __len__(self):
+                return 20
+
+        class Modifier:
+            type = "SUBSURF"
+            levels = 2
+            render_levels = 2
+
+        class Data:
+            polygons = Polygons()
+
+        class MeshObject:
+            type = "MESH"
+            data = Data()
+            modifiers = [Modifier()]
+
+        class EmptyObject:
+            type = "EMPTY"
+            data = None
+            modifiers = []
+
+        usage = scene_resource_usage(type("Scene", (), {"objects": [MeshObject(), EmptyObject()]})())
+        self.assertEqual(usage, {"objects": 2, "polygons": 320, "modifiers": 1})
+
+    def test_scene_resource_budget_rejects_modifier_expansion(self):
+        from blentopy.resource_limits import ResourceLimitError, ensure_scene_capacity
+
+        class Polygons:
+            def __len__(self):
+                return 2_000
+
+        class Modifier:
+            type = "SUBSURF"
+            levels = 6
+            render_levels = 6
+
+        class Data:
+            polygons = Polygons()
+
+        class MeshObject:
+            type = "MESH"
+            data = Data()
+            modifiers = [Modifier()]
+
+        scene = type("Scene", (), {"objects": [MeshObject()]})()
+        with self.assertRaises(ResourceLimitError):
+            ensure_scene_capacity(scene)
+
 class SceneIdTests(unittest.TestCase):
     def test_auto_ids_are_deterministic_and_skip_explicit_collisions(self):
         scene = SceneAPI(owner=None)

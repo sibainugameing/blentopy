@@ -11,6 +11,11 @@ import math
 from dataclasses import dataclass
 from typing import Any, Sequence
 
+from .resource_limits import (
+    ensure_scene_capacity, estimate_object_polygons,
+    modifier_polygon_delta, scene_resource_usage,
+)
+
 
 def _vector3(value: Sequence[float], label: str) -> tuple[float, float, float]:
     if isinstance(value, (str, bytes)) or len(value) != 3:
@@ -347,6 +352,20 @@ class SceneAPI:
     def _backend(self):
         return self._owner._backend
 
+    def _ensure_capacity(
+        self,
+        *,
+        objects: int = 0,
+        polygons: int = 0,
+        modifiers: int = 0,
+    ) -> None:
+        ensure_scene_capacity(
+            self._backend.scene,
+            added_objects=objects,
+            added_polygons=polygons,
+            added_modifiers=modifiers,
+        )
+
     def configure(
         self,
         duration: float | None = None,
@@ -418,6 +437,25 @@ class SceneAPI:
         bpy = self._backend._bpy
         values = geometry.options()
         kind = geometry.kind
+        polygon_estimates = {
+            "box": 6,
+            "sphere": values.get("segments", 32) * max(1, values.get("rings", 16) - 1) * 2,
+            "plane": 1,
+            "cylinder": values.get("segments", 32) + 2,
+            "cone": values.get("segments", 32) + 1,
+            "torus": values.get("major_segments", 48) * values.get("minor_segments", 12),
+            "custom": len(values.get("faces", ())),
+        }
+        estimated_polygons = polygon_estimates.get(kind)
+        if estimated_polygons is None:
+            raise ValueError(f"Unsupported geometry kind: {kind}")
+        bevel_enabled = kind == "box" and values.get("bevel", 0) > 0
+        modifier_count = 2 if bevel_enabled else 0
+        if bevel_enabled:
+            estimated_polygons *= 1 + 2 * 4
+        self._ensure_capacity(
+            objects=1, polygons=estimated_polygons, modifiers=modifier_count
+        )
 
         if kind == "box":
             bpy.ops.mesh.primitive_cube_add(size=1)
@@ -515,6 +553,7 @@ class SceneAPI:
         object_id = self._allocate_id("group") if id is None else _identifier(id)
         if object_id in self._objects:
             raise ValueError(f"Duplicate scene object id: {object_id}")
+        self._ensure_capacity(objects=1)
         bpy = self._backend._bpy
         empty = bpy.data.objects.new(object_id, None)
         empty.empty_display_type = "PLAIN_AXES"
@@ -601,6 +640,7 @@ class SceneAPI:
         object_id = self._allocate_id("curve") if id is None else _identifier(id)
         if object_id in self._objects:
             raise ValueError(f"Duplicate scene object id: {object_id}")
+        self._ensure_capacity(objects=1)
         bpy = self._backend._bpy
         data = bpy.data.curves.new(f"{object_id} Data", type="CURVE")
         data.dimensions = "3D"
@@ -650,6 +690,7 @@ class SceneAPI:
         object_id = self._allocate_id("text") if id is None else _identifier(id)
         if object_id in self._objects:
             raise ValueError(f"Duplicate scene object id: {object_id}")
+        self._ensure_capacity(objects=1)
         bpy = self._backend._bpy
         data = bpy.data.curves.new(f"{object_id} Data", type="FONT")
         data.body = body
@@ -675,6 +716,11 @@ class SceneAPI:
         object_id = self._allocate_id(source.kind) if id is None else _identifier(id)
         if object_id in self._objects:
             raise ValueError(f"Duplicate scene object id: {object_id}")
+        self._ensure_capacity(
+            objects=1,
+            polygons=estimate_object_polygons(source._object),
+            modifiers=len(source._object.modifiers),
+        )
         duplicate_ref = source._object.copy()
         if source._object.data is not None:
             duplicate_ref.data = source._object.data.copy()
@@ -696,10 +742,18 @@ class SceneAPI:
         obj._object.dimensions = values
         return obj
 
-    def _mesh_modifier(self, target: Object3D | str, name: str, modifier_type: str):
+    def _mesh_modifier(
+        self,
+        target: Object3D | str,
+        name: str,
+        modifier_type: str,
+        **settings: object,
+    ):
         obj = self._resolve(target)
         if obj.kind != "mesh":
             raise ValueError(f"{name} can only be applied to mesh objects.")
+        delta = modifier_polygon_delta(obj._object, modifier_type, **settings)
+        self._ensure_capacity(modifiers=1, polygons=delta)
         return obj, obj._object.modifiers.new(name=f"Blentopy {name}", type=modifier_type)
 
     def bevel(self, target: Object3D | str, width: float = 0.05, segments: int = 3) -> Object3D:
@@ -707,7 +761,7 @@ class SceneAPI:
             raise ValueError("Bevel width must be finite and greater than zero.")
         if type(segments) is not int or not 1 <= segments <= 12:
             raise ValueError("Bevel segments must be between 1 and 12.")
-        obj, modifier = self._mesh_modifier(target, "Bevel", "BEVEL")
+        obj, modifier = self._mesh_modifier(target, "Bevel", "BEVEL", segments=segments)
         modifier.width = float(width)
         modifier.segments = segments
         modifier.limit_method = "ANGLE"
@@ -725,7 +779,10 @@ class SceneAPI:
         resolved_render = levels if render_levels is None else render_levels
         if type(resolved_render) is not int or not 1 <= resolved_render <= 6:
             raise ValueError("Subdivision render levels must be between 1 and 6.")
-        obj, modifier = self._mesh_modifier(target, "Subdivision", "SUBSURF")
+        obj, modifier = self._mesh_modifier(
+            target, "Subdivision", "SUBSURF",
+            levels=levels, render_levels=resolved_render,
+        )
         modifier.subdivision_type = "CATMULL_CLARK"
         modifier.levels = levels
         modifier.render_levels = resolved_render
@@ -750,7 +807,10 @@ class SceneAPI:
     ) -> Object3D:
         if axis not in {"x", "y", "z"}:
             raise ValueError("Mirror axis must be x, y, or z.")
-        obj, modifier = self._mesh_modifier(target, "Mirror", "MIRROR")
+        obj, modifier = self._mesh_modifier(
+            target, "Mirror", "MIRROR",
+            use_axis=tuple(axis == candidate for candidate in ("x", "y", "z")),
+        )
         modifier.use_axis = tuple(axis == candidate for candidate in ("x", "y", "z"))
         modifier.use_bisect_axis = tuple(bisect and axis == candidate for candidate in ("x", "y", "z"))
         modifier.use_mirror_merge = bool(merge)
@@ -767,7 +827,7 @@ class SceneAPI:
         delta = _vector3(offset, "array offset")
         if not any(abs(value) > 1e-9 for value in delta):
             raise ValueError("Array offset must move the repeated object.")
-        obj, modifier = self._mesh_modifier(target, "Array", "ARRAY")
+        obj, modifier = self._mesh_modifier(target, "Array", "ARRAY", count=count)
         modifier.count = count
         modifier.use_relative_offset = False
         modifier.use_constant_offset = True
@@ -786,6 +846,10 @@ class SceneAPI:
             raise ValueError("Boolean operations require two different mesh objects.")
         if operation not in {"DIFFERENCE", "UNION", "INTERSECT"}:
             raise ValueError("operation must be DIFFERENCE, UNION, or INTERSECT.")
+        self._ensure_capacity(
+            modifiers=1,
+            polygons=modifier_polygon_delta(obj._object, "BOOLEAN"),
+        )
         modifier = obj._object.modifiers.new(name="Blentopy Boolean", type="BOOLEAN")
         modifier.operation = operation
         modifier.object = cutter._object
@@ -1027,6 +1091,7 @@ class SceneAPI:
         object_id = self._allocate_id("camera") if id is None else _identifier(id)
         if object_id in self._objects:
             raise ValueError(f"Duplicate scene object id: {object_id}")
+        self._ensure_capacity(objects=1)
         if projection not in {"perspective", "orthographic"}:
             raise ValueError("projection must be perspective or orthographic.")
         bpy = self._backend._bpy
@@ -1057,6 +1122,7 @@ class SceneAPI:
         object_id = self._allocate_id("light") if id is None else _identifier(id)
         if object_id in self._objects:
             raise ValueError(f"Duplicate scene object id: {object_id}")
+        self._ensure_capacity(objects=1)
         kinds = {"area": "AREA", "point": "POINT", "spot": "SPOT", "directional": "SUN"}
         if type not in kinds:
             raise ValueError("Light type must be area, point, spot, or directional.")
@@ -1097,8 +1163,10 @@ class SceneAPI:
         return MotionAPI(self, target)
 
     def inspect(self) -> dict[str, Any]:
+        usage = scene_resource_usage(self._backend.scene)
         return {
             "object_count": len(self._objects),
+            "resource_usage": usage,
             "camera": (
                 self._camera.id if self._camera else
                 (self._backend.scene.camera.name if self._backend.scene.camera else None)
@@ -1132,6 +1200,19 @@ class SceneAPI:
     def validate(self) -> dict[str, Any]:
         errors: list[str] = []
         warnings: list[str] = []
+        usage = scene_resource_usage(self._backend.scene)
+        if usage["objects"] > 1_000:
+            errors.append(
+                f"Scene object limit exceeded: {usage['objects']:,} > 1,000."
+            )
+        if usage["polygons"] > 300_000:
+            errors.append(
+                f"Estimated polygon limit exceeded: {usage['polygons']:,} > 300,000."
+            )
+        if usage["modifiers"] > 1_500:
+            errors.append(
+                f"Scene modifier limit exceeded: {usage['modifiers']:,} > 1,500."
+            )
         if self._backend.scene.camera is None:
             errors.append("No active camera is configured.")
         if not any(obj.type in {"MESH", "CURVE", "FONT"} for obj in self._backend.scene.objects):
@@ -1146,6 +1227,12 @@ class SceneAPI:
             "errors": errors,
             "warnings": warnings,
             "object_count": len(self._objects),
+            "resource_usage": usage,
+            "resource_limits": {
+                "objects": 1_000,
+                "polygons": 300_000,
+                "modifiers": 1_500,
+            },
         }
 
 
