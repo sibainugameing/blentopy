@@ -48,6 +48,12 @@ def main() -> int:
         code = compile(tree, str(script_path), "exec")
         namespace = {"studio": studio, "math": math, "range": range, "__builtins__": {}}
         exec(code, namespace, namespace)
+        scene_snapshot = studio.scene.inspect()
+        if scene_snapshot["object_count"]:
+            report = studio.scene.validate()
+            print("BLENTOPY_SCENE_REPORT=" + json.dumps(report, ensure_ascii=False), flush=True)
+            if not report["ok"]:
+                raise RuntimeError("AI-native scene validation failed: " + "; ".join(report["errors"]))
 
         for window in bpy.context.window_manager.windows:
             window.scene = studio.blender_scene
