@@ -136,9 +136,9 @@ for hero in scene.find(role="hero"):
 
     def test_compiles_and_executes_instrumented_dynamic_loop(self):
         tree = validate_script(
-            "count = 3\\n"
-            "for index in range(count):\\n"
-            "    last_index = index\\n"
+            "count = 3\n"
+            "for index in range(count):\n"
+            "    last_index = index\n"
         )
         budget = {"iterations": 0, "expansion_cost": 0}
         namespace = {
