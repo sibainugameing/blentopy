@@ -882,7 +882,7 @@ GUI preview requires a desktop session. It may not work in a headless environmen
 
 Validation errors identify the source file, line, code, and a suggested correction when possible. Read the exact diagnostic before changing the script.
 
-The scene language is deliberately smaller than general Python. It does not expose built-ins such as `max()`, `min()`, `len()`, or `round()`. The only built-in call is `range()` directly in a bounded `for` loop; list/tuple variables and `scene.find(role=...)` results can also be used as loop iterables. Use the API methods documented in [docs/AI_SYSTEM_PROMPT.md](docs/AI_SYSTEM_PROMPT.md).
+Scene scripts use standard Python rather than a restricted scene language. The syntax preflight checks for parse errors and oversized input; it does not block imports, built-ins, helper functions, normal loops, comprehensions, or Blender API calls. Use the `studio` facade for common operations and `bpy`/`mathutils` for Blender features that the facade does not wrap.
 
 Both animation forms below are supported:
 
@@ -897,16 +897,16 @@ track = scene.motion(hero).track("rotation")
 
 Normal Python method chaining is supported. Store intermediate objects in variables when doing so improves readability or makes diagnostics easier.
 
-For example, the following is not allowed:
+The same approach is valid in a scene script:
 
 ~~~python
 import bpy
 
 for index in range(10):
-    ...
+    bpy.ops.mesh.primitive_cube_add(location=(index * 1.5, 0, 1))
 ~~~
 
-Instead, write the required Studio API calls explicitly.
+Use the facade when it makes a task clearer; use Blender's native Python API when it offers the better control or a feature the facade does not expose.
 
 ### Objects do not appear in the camera view
 
