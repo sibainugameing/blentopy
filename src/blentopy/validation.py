@@ -660,8 +660,9 @@ def validate_script(source: str) -> ast.Module:
     """Parse and validate a scene script before executing it inside Blender.
 
     The language supports safe API handles, assignments, conditionals, and
-    statically bounded nested loops. It is a capability restriction, not an
-    operating-system sandbox.
+    runtime-bounded loops. Statically knowable limits are checked before
+    execution; dynamic iterables are guarded by the worker at runtime. This is
+    a capability restriction, not an operating-system sandbox.
     """
     if not isinstance(source, str):
         raise ScriptValidationError("Python code must be a string.")
