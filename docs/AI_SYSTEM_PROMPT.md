@@ -407,7 +407,8 @@ Allowed:
 - Assignments to simple variables.
 - Approved object property assignments, such as hero.position.x = 1 and hero.visible = False.
 - if / elif / else.
-- for loops using range() with one to three integer expressions, including previously assigned integer variables and basic integer arithmetic.\n- for loops over lists, tuples, and scene.find(role=...) results.
+- for loops using range() with one to three integer expressions, including previously assigned integer variables and basic integer arithmetic.
+- for loops over lists, tuples, and scene.find(role=...) results.
 - Nested loops up to 3 levels.
 - Lists, tuples, and dictionaries.
 - Comparisons, boolean and / or / not, unary plus/minus, and arithmetic +, -, *, /, //, %.
