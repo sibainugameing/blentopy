@@ -45,7 +45,7 @@ def format_error_report(exc: Exception, *, script_path: str | Path | None = None
     if not log:
         return "\n".join(lines)
     log_lines = log.splitlines()
-    frames = list(re.finditer(r'File "([^"]+)", line (\\d+)(?:, in ([^"]+))?', log))
+    frames = list(re.finditer(r'File "([^"]+)", line (\d+)(?:, in ([^"]+))?', log))
     if script_path:
         preferred = [frame for frame in frames if Path(frame.group(1)).name == Path(script_path).name]
         if preferred:
