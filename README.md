@@ -2,7 +2,7 @@
 
 Python-first Blender automation for AI-directed video production.
 
-blentopy is a local execution bridge, not an AI model and not an application that calls a hosted AI API. An MCP-capable chat client supplies the reasoning and sends scene code to the local Python server. blentopy starts Blender in background mode, builds a 3D scene, combines the scene and audio in the Video Sequence Editor, then writes an MP4 and an editable .blend project.
+blentopy is a local execution bridge, not an AI model and not an application that calls a hosted AI API. An MCP-capable chat client supplies the reasoning and sends scene code to the local Python server. blentopy starts Blender, builds a 3D scene, combines the scene and audio in the Video Sequence Editor, then writes an MP4 and an editable .blend project.
 
 ## Prototype scope
 
@@ -13,6 +13,7 @@ blentopy is a local execution bridge, not an AI model and not an application tha
 - Separate content and output scenes, so a VSE scene strip can combine the 3D render with audio.
 - H.264 video in an MP4 container.
 - Optional local stdio MCP server; no AI API key is required.
+- Interactive GUI preview: open Blender, build the scene, save the .blend, and leave the GUI open.
 
 This is an early prototype. It does not yet generate 3D assets, characters/rigs, narration, music, or automatic scene repairs. Audio files must be supplied by the user.
 
@@ -31,7 +32,7 @@ From the repository root:
     python3 -m venv .venv
     source .venv/bin/activate
     python -m pip install -e .
-    
+
 For MCP support:
 
     python -m pip install -e '.[mcp]'
@@ -45,6 +46,23 @@ If Blender is not on PATH:
     blentopy doctor --blender /Applications/Blender.app/Contents/MacOS/Blender
 
 You can also set BLENTOPY_BLENDER to the executable path.
+
+## Preview in Blender GUI
+
+To open a scene script in the interactive Blender application without starting a video render:
+
+    blentopy preview examples/demo_scene.py
+
+This launches Blender in GUI mode, executes the validated scene script, saves an editable .blend file, and leaves Blender open so you can inspect and edit the result. The default project path is renders/demo_scene.blend.
+
+You can override the Blender executable and output paths:
+
+    blentopy preview examples/demo_scene.py \
+        --blender /Applications/Blender.app/Contents/MacOS/Blender \
+        --blend-output renders/preview.blend \
+        --workspace blentopy-workspace
+
+The preview command does not render an MP4. Use the render command when you want final video output.
 
 ## Render the sample
 
@@ -85,7 +103,8 @@ Rotation vectors passed to animate_rotation are in degrees. Location and scale u
 ### Audio
 
 Place audio files inside the workspace, for example:
-blentopy-workspace/assets/narration.wav
+
+    blentopy-workspace/assets/narration.wav
 
 Then call:
 
@@ -139,7 +158,7 @@ This validator is a restricted language surface, not an operating-system sandbox
     PYTHONPATH=src python -m unittest discover -s tests -v
     python -m compileall -q src tests examples
 
-Tests cover the script validator and render-setting limits without requiring Blender. A real render requires a locally installed Blender executable.
+Tests cover the script validator and render-setting limits without requiring Blender. A real render and GUI preview require a locally installed Blender executable and a desktop session.
 
 ## Current limitations
 
