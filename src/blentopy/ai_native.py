@@ -16,6 +16,7 @@ from .resource_limits import (
     ensure_scene_capacity, estimate_object_polygons,
     modifier_polygon_delta, scene_resource_usage,
 )
+from .scene_features import SceneFeatureMixin, build_geometry_mesh
 
 
 def _vector3(value: Sequence[float], label: str) -> tuple[float, float, float]:
@@ -222,6 +223,97 @@ class GeometryFactory:
         ))
 
     @staticmethod
+    def ico_sphere(radius: float = 0.5, subdivisions: int = 2) -> GeometrySpec:
+        if type(radius) not in {int, float} or not math.isfinite(radius) or radius <= 0:
+            raise ValueError("Icosphere radius must be finite and greater than zero.")
+        if type(subdivisions) is not int or not 1 <= subdivisions <= 6:
+            raise ValueError("Icosphere subdivisions must be between 1 and 6.")
+        return GeometrySpec("ico_sphere", (("radius", float(radius)), ("subdivisions", subdivisions)))
+
+    @staticmethod
+    def circle(radius: float = 1.0, vertices: int = 64, fill: bool = True) -> GeometrySpec:
+        if type(radius) not in {int, float} or not math.isfinite(radius) or radius <= 0:
+            raise ValueError("Circle radius must be finite and greater than zero.")
+        if type(vertices) is not int or not 3 <= vertices <= 512:
+            raise ValueError("Circle vertices must be an integer from 3 to 512.")
+        if type(fill) is not bool:
+            raise TypeError("Circle fill must be a boolean.")
+        return GeometrySpec("circle", (("radius", float(radius)), ("vertices", vertices), ("fill", fill)))
+
+    @staticmethod
+    def ring(inner_radius: float = 0.8, outer_radius: float = 1.0, segments: int = 64) -> GeometrySpec:
+        if (
+            type(inner_radius) not in {int, float}
+            or type(outer_radius) not in {int, float}
+            or not math.isfinite(inner_radius)
+            or not math.isfinite(outer_radius)
+            or not 0 < inner_radius < outer_radius
+        ):
+            raise ValueError("Ring radii must satisfy 0 < inner_radius < outer_radius.")
+        if type(segments) is not int or not 8 <= segments <= 512:
+            raise ValueError("Ring segments must be an integer from 8 to 512.")
+        return GeometrySpec("ring", (
+            ("inner_radius", float(inner_radius)),
+            ("outer_radius", float(outer_radius)),
+            ("segments", segments),
+        ))
+
+    @staticmethod
+    def capsule(
+        radius: float = 0.5,
+        height: float = 2.0,
+        radial_segments: int = 32,
+        cap_segments: int = 8,
+    ) -> GeometrySpec:
+        if (
+            type(radius) not in {int, float}
+            or type(height) not in {int, float}
+            or not math.isfinite(radius)
+            or not math.isfinite(height)
+            or radius <= 0
+            or height < 2 * radius
+        ):
+            raise ValueError("Capsule dimensions must be finite, with height >= 2 * radius > 0.")
+        if type(radial_segments) is not int or not 8 <= radial_segments <= 128:
+            raise ValueError("Capsule radial_segments must be between 8 and 128.")
+        if type(cap_segments) is not int or not 2 <= cap_segments <= 24:
+            raise ValueError("Capsule cap_segments must be between 2 and 24.")
+        return GeometrySpec("capsule", (
+            ("radius", float(radius)), ("height", float(height)),
+            ("radial_segments", radial_segments), ("cap_segments", cap_segments),
+        ))
+
+    @staticmethod
+    def torus_knot(
+        radius: float = 1.0,
+        tube: float = 0.2,
+        tubular_segments: int = 128,
+        radial_segments: int = 12,
+        p: int = 2,
+        q: int = 3,
+    ) -> GeometrySpec:
+        if (
+            type(radius) not in {int, float}
+            or type(tube) not in {int, float}
+            or not math.isfinite(radius)
+            or not math.isfinite(tube)
+            or radius <= 0
+            or not 0 < tube < radius
+        ):
+            raise ValueError("Torus knot dimensions must satisfy 0 < tube < radius.")
+        if type(tubular_segments) is not int or not 24 <= tubular_segments <= 512:
+            raise ValueError("tubular_segments must be between 24 and 512.")
+        if type(radial_segments) is not int or not 6 <= radial_segments <= 48:
+            raise ValueError("radial_segments must be between 6 and 48.")
+        if type(p) is not int or type(q) is not int or not 1 <= p <= 8 or not 1 <= q <= 8:
+            raise ValueError("Torus knot p and q must be integers from 1 to 8.")
+        return GeometrySpec("torus_knot", (
+            ("radius", float(radius)), ("tube", float(tube)),
+            ("tubular_segments", tubular_segments), ("radial_segments", radial_segments),
+            ("p", p), ("q", q),
+        ))
+
+    @staticmethod
     def mesh(
         vertices: Sequence[Sequence[float]],
         faces: Sequence[Sequence[int]],
@@ -296,6 +388,68 @@ class MaterialFactory:
             ("scale", float(scale)),
             ("detail", float(detail)),
             ("bump_strength", float(bump_strength)),
+        ))
+
+    @staticmethod
+    def physical(
+        color: str | Sequence[float] = "#FFFFFF",
+        roughness: float = 0.08,
+        metallic: float = 0.0,
+        transmission: float = 1.0,
+        ior: float = 1.45,
+        thickness: float = 0.2,
+        alpha: float = 1.0,
+        coat: float = 0.0,
+        subsurface: float = 0.0,
+        sheen: float = 0.0,
+        anisotropy: float = 0.0,
+    ) -> MaterialSpec:
+        for label, value in (
+            ("roughness", roughness), ("metallic", metallic), ("transmission", transmission),
+            ("alpha", alpha), ("coat", coat), ("subsurface", subsurface),
+            ("sheen", sheen), ("anisotropy", anisotropy),
+        ):
+            if type(value) not in {int, float} or not math.isfinite(value) or not 0 <= value <= 1:
+                raise ValueError(f"{label} must be finite and between 0 and 1.")
+        if type(ior) not in {int, float} or not math.isfinite(ior) or not 1 <= ior <= 3:
+            raise ValueError("ior must be finite and between 1 and 3.")
+        if type(thickness) not in {int, float} or not math.isfinite(thickness) or not 0 <= thickness <= 100:
+            raise ValueError("thickness must be finite and between 0 and 100.")
+        return MaterialSpec("physical", (
+            ("color", _color(color)), ("roughness", float(roughness)),
+            ("metallic", float(metallic)), ("coat", float(coat)),
+            ("emission", None), ("emission_strength", 0.0),
+            ("transmission", float(transmission)), ("ior", float(ior)),
+            ("thickness", float(thickness)), ("alpha", float(alpha)),
+            ("subsurface", float(subsurface)), ("sheen", float(sheen)),
+            ("anisotropy", float(anisotropy)),
+        ))
+
+    @staticmethod
+    def glass(
+        color: str | Sequence[float] = "#FFFFFF",
+        roughness: float = 0.04,
+        ior: float = 1.45,
+        thickness: float = 0.2,
+    ) -> MaterialSpec:
+        return MaterialFactory.physical(
+            color=color, roughness=roughness, transmission=1.0,
+            ior=ior, thickness=thickness,
+        )
+
+    @staticmethod
+    def toon(
+        color: str | Sequence[float] = "#FFFFFF",
+        size: float = 0.5,
+        smooth: float = 0.1,
+    ) -> MaterialSpec:
+        for label, value in (("size", size), ("smooth", smooth)):
+            if type(value) not in {int, float} or not math.isfinite(value) or not 0 <= value <= 1:
+                raise ValueError(f"Toon {label} must be finite and between 0 and 1.")
+        return MaterialSpec("toon", (
+            ("color", _color(color)), ("roughness", 0.6), ("metallic", 0.0),
+            ("coat", 0.0), ("emission", None), ("emission_strength", 0.0),
+            ("size", float(size)), ("smooth", float(smooth)),
         ))
 
     @staticmethod
@@ -438,7 +592,7 @@ class Object3D:
         self._scene.attach(child, self)
 
 
-class SceneAPI:
+class SceneAPI(SceneFeatureMixin):
     """AI-facing scene graph and spatial operations."""
 
     __slots__ = ("_owner", "_objects", "_camera", "_duration", "_fps", "_materials", "_counters")
@@ -545,7 +699,7 @@ class SceneAPI:
         if spec is None:
             spec = MaterialFactory.pbr()
         if not isinstance(spec, MaterialSpec) or spec.model not in {
-            "pbr", "emissive", "image_texture", "noise"
+            "pbr", "emissive", "image_texture", "noise", "physical", "toon"
         }:
             raise TypeError(
                 "material must be created with studio.mat.pbr(), emissive(), "
@@ -593,6 +747,36 @@ class SceneAPI:
         shader = nodes.get("Principled BSDF")
         if shader is None:
             raise RuntimeError("The material has no Principled BSDF node.")
+
+        if spec.model == "physical":
+            sockets = {
+                "transmission": ("Transmission Weight", "Transmission"),
+                "ior": ("IOR",),
+                "thickness": ("Thickness",),
+                "alpha": ("Alpha",),
+                "subsurface": ("Subsurface Weight", "Subsurface"),
+                "sheen": ("Sheen Weight", "Sheen"),
+                "anisotropy": ("Anisotropic IOR Level", "Anisotropic"),
+            }
+            for key_name, socket_names in sockets.items():
+                socket = next((shader.inputs.get(name) for name in socket_names if shader.inputs.get(name) is not None), None)
+                if socket is not None:
+                    socket.default_value = values[key_name]
+
+        if spec.model == "toon":
+            output = next((node for node in nodes if node.type == "OUTPUT_MATERIAL"), None)
+            if output is None:
+                output = nodes.new("ShaderNodeOutputMaterial")
+            surface = output.inputs.get("Surface")
+            for link in list(material.node_tree.links):
+                if link.to_node == output and link.to_socket == surface:
+                    material.node_tree.links.remove(link)
+            toon = nodes.new("ShaderNodeBsdfToon")
+            toon.label = "Blentopy Toon Shader"
+            toon.inputs["Color"].default_value = values["color"]
+            toon.inputs["Size"].default_value = values["size"]
+            toon.inputs["Smooth"].default_value = values["smooth"]
+            material.node_tree.links.new(toon.outputs["BSDF"], surface)
 
         if texture_path is not None:
             image = bpy.data.images.load(str(texture_path), check_existing=True)
@@ -644,6 +828,11 @@ class SceneAPI:
             "cylinder": values.get("segments", 32) + 2,
             "cone": values.get("segments", 32) + 1,
             "torus": values.get("major_segments", 48) * values.get("minor_segments", 12),
+            "ico_sphere": 20 * (4 ** values.get("subdivisions", 2)),
+            "circle": values.get("vertices", 64) if values.get("fill", True) else 0,
+            "ring": values.get("segments", 64),
+            "capsule": values.get("radial_segments", 32) * (2 * values.get("cap_segments", 8) + 1),
+            "torus_knot": values.get("tubular_segments", 128) * values.get("radial_segments", 12),
             "custom": len(values.get("faces", ())),
         }
         estimated_polygons = polygon_estimates.get(kind)
@@ -702,6 +891,28 @@ class SceneAPI:
             obj = self._backend._active_object()
             for polygon in obj.data.polygons:
                 polygon.use_smooth = True
+        elif kind == "ico_sphere":
+            bpy.ops.mesh.primitive_ico_sphere_add(
+                subdivisions=values["subdivisions"], radius=values["radius"],
+            )
+            obj = self._backend._active_object()
+        elif kind == "circle":
+            bpy.ops.mesh.primitive_circle_add(
+                vertices=values["vertices"],
+                radius=values["radius"],
+                fill_type="NGON" if values["fill"] else "NOTHING",
+            )
+            obj = self._backend._active_object()
+        elif kind in {"ring", "capsule", "torus_knot"}:
+            vertices, faces = build_geometry_mesh(kind, values)
+            mesh_data = bpy.data.meshes.new(f"{object_id} Geometry")
+            mesh_data.from_pydata(vertices, [], faces)
+            mesh_data.update()
+            obj = bpy.data.objects.new(object_id, mesh_data)
+            self._backend.scene.collection.objects.link(obj)
+            if kind in {"capsule", "torus_knot"}:
+                for polygon in mesh_data.polygons:
+                    polygon.use_smooth = True
         elif kind == "custom":
             mesh_data = bpy.data.meshes.new(f"{object_id} Geometry")
             mesh_data.from_pydata(values["vertices"], [], values["faces"])
@@ -931,6 +1142,34 @@ class SceneAPI:
         duplicate_ref.name = object_id
         duplicate_role = source.role if role is None else role
         return self._register(object_id, duplicate_ref, source.kind, duplicate_role)
+
+    def instance(
+        self,
+        target: Object3D | str,
+        id: str | None = None,
+        offset: Sequence[float] = (1, 0, 0),
+        role: str | None = None,
+    ) -> Object3D:
+        """Create a lightweight linked-data instance sharing the source mesh/material data."""
+        source = self._resolve(target)
+        object_id = self._allocate_id(source.kind) if id is None else _identifier(id)
+        if object_id in self._objects:
+            raise ValueError(f"Duplicate scene object id: {object_id}")
+        self._ensure_capacity(
+            objects=1,
+            polygons=estimate_object_polygons(source._object),
+            modifiers=len(source._object.modifiers),
+        )
+        instance_ref = source._object.copy()
+        # Unlike duplicate(), do not copy object data: mesh, curve and material
+        # datablocks remain shared until the user explicitly makes them single-user.
+        self._backend.scene.collection.objects.link(instance_ref)
+        world_matrix = source._object.matrix_world.copy()
+        world_matrix.translation += self._backend._Vector(_vector3(offset, "offset"))
+        instance_ref.matrix_world = world_matrix
+        instance_ref.name = object_id
+        instance_role = source.role if role is None else role
+        return self._register(object_id, instance_ref, source.kind, instance_role)
 
     def set_dimensions(self, target: Object3D | str, dimensions: Sequence[float]) -> Object3D:
         obj = self._resolve(target)

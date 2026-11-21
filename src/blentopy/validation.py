@@ -33,14 +33,17 @@ STUDIO_METHODS = frozenset({
 SCENE_METHODS = frozenset({
     "configure", "mesh", "surface", "group", "add", "remove", "attach",
     "place", "look_at", "frame", "align", "camera", "light", "curve", "text",
-    "duplicate", "set_dimensions", "bevel", "subdivide", "solidify", "mirror",
+    "duplicate", "instance", "set_dimensions", "bevel", "subdivide", "solidify", "mirror",
     "array", "boolean", "shade_smooth", "find", "update", "set_material",
     "motion", "inspect", "validate", "armature", "bind_armature", "rigid_body",
+    "configure_render", "environment", "post_process", "camera_dof", "set_visibility",
+    "import_model", "export_model",
 })
 GEOMETRY_METHODS = frozenset({
     "box", "rounded_box", "sphere", "plane", "cylinder", "cone", "torus", "mesh",
+    "ico_sphere", "circle", "ring", "capsule", "torus_knot",
 })
-MATERIAL_METHODS = frozenset({"pbr", "emissive", "image_texture", "noise"})
+MATERIAL_METHODS = frozenset({"pbr", "emissive", "image_texture", "noise", "physical", "glass", "toon"})
 OBJECT_PROPERTIES = frozenset({
     "id", "kind", "role", "position", "rotation", "scale", "visible",
 })

@@ -559,3 +559,78 @@ The material API exposes two bounded node presets: studio.mat.image_texture(file
 `scene.armature(id, bones, role="rig")` creates a hierarchy of 1–64 named bones. Each bone dictionary requires `name`, `head`, and `tail` vectors, and may include a `parent` name. Parent references must exist and the hierarchy must be acyclic. `scene.bind_armature(mesh, rig, bone, weight=1.0)` assigns all vertices of a mesh to one bone group; this is intended for rigid props and simple deformation, not automatic skin weighting or production character skinning.
 
 `scene.rigid_body(target, body_type="ACTIVE", mass=1.0, collision_shape="CONVEX_HULL", friction=0.5, restitution=0.0)` configures Blender rigid-body physics for mesh objects and creates a cache range matching the scene timeline. The default solver settings are 8 substeps per frame and 10 iterations. This creates a simulation setup but does not bake or guarantee deterministic caches across hardware/Blender versions; bake and inspect the result in Blender before delivery. Soft-body, cloth, fluid, particle, and character-rig automation remain unsupported.
+
+
+## 24. Expanded geometry, materials, environments, and rendering
+
+The AI-native API also includes the following bounded features. These methods remain Blender-native and are validated before the scene script runs.
+
+### Additional geometry
+
+- geo.ico_sphere(radius=0.5, subdivisions=2): create a low-poly geodesic sphere.
+- geo.circle(radius=1, vertices=64, fill=True): create a flat circle; fill=False creates an outline.
+- geo.ring(inner_radius=0.8, outer_radius=1, segments=64): create a flat annulus.
+- geo.capsule(radius=0.5, height=2, radial_segments=32, cap_segments=8): create a rounded capsule with height >= 2 * radius.
+- geo.torus_knot(radius=1, tube=0.2, tubular_segments=128, radial_segments=12, p=2, q=3): create a parametric torus knot. Segment counts and p/q are bounded.
+
+Example:
+
+~~~python
+ico = scene.mesh(geo.ico_sphere(radius=0.8, subdivisions=3), material=mat.pbr(color="#55AADD"))
+capsule = scene.mesh(geo.capsule(radius=0.35, height=2.2), material=mat.pbr(color="#D5A35E"))
+ring = scene.mesh(geo.ring(inner_radius=0.65, outer_radius=0.8), material=mat.physical(metallic=0.7, transmission=0))
+knot = scene.mesh(geo.torus_knot(radius=1, tube=0.12, p=2, q=3), material=mat.pbr(color="#A06BFF"))
+~~~
+
+### Extended materials
+
+- mat.physical(color="#FFFFFF", roughness=0.08, metallic=0, transmission=1, ior=1.45, thickness=0.2, alpha=1, coat=0, subsurface=0, sheen=0, anisotropy=0): configure additional Principled BSDF inputs where supported by the installed Blender version.
+- mat.glass(color="#FFFFFF", roughness=0.04, ior=1.45, thickness=0.2): glass preset using transmission.
+- mat.toon(color="#FFFFFF", size=0.5, smooth=0.1): connect a Toon BSDF shader.
+
+Blender versions expose different Principled BSDF sockets. Unsupported optional sockets are skipped; the values are still validated. Glass quality depends on the render engine, lighting, and transparent-object settings.
+
+### Environment maps and camera depth of field
+
+- scene.environment(filepath, strength=1, rotation=0): load an HDR or EXR file into the world shader. The file must be inside the blentopy workspace, at most 128 MiB, and no larger than 16384 pixels on either dimension. The image is packed into the .blend file.
+- scene.camera_dof(camera, focus=None, focus_distance=10, f_stop=2.8, enabled=True): enable depth of field on a camera, focusing on an object ID/handle or a fixed distance.
+- scene.set_visibility(target, viewport=None, render=None): independently control viewport and render visibility.
+
+### Render configuration and compositing
+
+- scene.configure_render(engine="eevee", samples=64, resolution_percent=100, transparent=False, motion_blur=False, color_transform="AgX"): set Eevee or Cycles quality, output percentage, transparency, motion blur, and view transform.
+- scene.post_process(bloom=0, lens_distortion=0, exposure=0, contrast=1, saturation=1): build a labelled compositor chain. Repeated calls replace only blentopy-managed post-process nodes, preserving unrelated compositor nodes.
+
+Effect ranges: bloom 0–1, lens distortion -0.5–0.5, exposure -10–10 stops, contrast 0–2, saturation 0–2. Results vary by Blender version and render engine.
+
+### Model import and export
+
+- scene.import_model(filepath, format="auto", id_prefix="imported", role="imported"): import GLB, glTF, OBJ, FBX, STL, PLY, USD, or USDZ data from a file inside the blentopy workspace. Returns registered Object3D handles. The importer must be available in the installed Blender build.
+- scene.export_model(filepath, format="auto", selected_only=False): export GLB, glTF, OBJ, FBX, STL, PLY, or USD inside the workspace. selected_only=True exports the current Blender selection.
+
+All import/export paths are constrained to the workspace; path traversal and symlinks resolving outside it are rejected. Keep source assets under the workspace, for example assets/, and exports under exports/.
+
+Example:
+
+~~~python
+asset_objects = scene.import_model("assets/robot.glb")
+scene.configure_render(engine="cycles", samples=96)
+scene.camera_dof(camera, focus=hero, f_stop=3.2)
+scene.post_process(bloom=0.25, exposure=0.2, saturation=0.95)
+scene.export_model("exports/robot.glb", selected_only=False)
+~~~
+
+
+
+### Efficient repeated objects
+
+- scene.instance(target, id=None, offset=(1,0,0), role=None): create a linked-data object instance. Geometry and material datablocks are shared with the source, reducing duplicate mesh memory. Transform the returned handle independently. Editing shared mesh data affects every linked instance; use scene.duplicate() when independent mesh data is required.
+
+Example:
+
+~~~python
+source = scene.mesh(geometry=geo.rounded_box(size=(0.5, 0.5, 1)), material=mat.pbr(color="#5577AA"))
+for index in range(8):
+    column = scene.instance(source, offset=(index * 1.2, 0, 0))
+~~~
+
