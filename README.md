@@ -122,6 +122,7 @@ Run the local stdio server:
 It exposes:
 - blentopy_environment — detect Blender and report its path/version.
 - blentopy_render_scene — receive a Python Studio API script and render MP4 + .blend.
+- blentopy_preview_scene — launch Blender GUI, execute a scene script, save .blend, and leave Blender open.
 - blentopy_list_outputs — list recent output files.
 
 A generic MCP host entry:
@@ -164,7 +165,7 @@ Tests cover the script validator and render-setting limits without requiring Ble
 
 - No AI model is bundled and no AI provider API is called.
 - Basic primitive-based scene creation only; no character rigging or automatic asset generation.
-- No TTS generation, music generation, preview UI, timeline UI, retry planner, or render farm.
+- No TTS generation, music generation, timeline UI, retry planner, or render farm.
 - No automatic correction after a failed render.
 - Blender API compatibility and actual MP4 rendering still need to be verified on the target machine.
 
