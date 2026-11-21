@@ -59,7 +59,24 @@ _ALLOWED_NODE_TYPES = (
 
 
 class ScriptValidationError(ValueError):
-    """Raised when code uses syntax or API access outside the scene language."""
+    """A scene-script validation error with editor-friendly source diagnostics."""
+
+    def __init__(
+        self,
+        message: str,
+        *,
+        lineno: int | None = None,
+        col_offset: int | None = None,
+        source_line: str | None = None,
+        suggestion: str | None = None,
+        code: str | None = None,
+    ) -> None:
+        super().__init__(message)
+        self.lineno = lineno
+        self.col_offset = col_offset
+        self.source_line = source_line
+        self.suggestion = suggestion
+        self.code = code
 
 
 def _literal_range(node: ast.For) -> range:
@@ -105,6 +122,26 @@ def _attribute_chain(node: ast.AST) -> tuple[str, tuple[str, ...]] | None:
     if any(not part or part.startswith("_") for part in attributes):
         return None
     return current.id, tuple(attributes)
+
+
+def _is_scene_motion_call(node: ast.AST) -> bool:
+    """Return True only for a direct scene.motion(...) API call."""
+    if not isinstance(node, ast.Call):
+        return False
+    chain = _attribute_chain(node.func)
+    return chain in {
+        ("scene", ("motion",)),
+        ("studio", ("scene", "motion")),
+    }
+
+
+def _is_motion_track_chain(node: ast.AST) -> bool:
+    """Allow scene.motion(object).track(channel), a documented API shortcut."""
+    return (
+        isinstance(node, ast.Attribute)
+        and node.attr == "track"
+        and _is_scene_motion_call(node.value)
+    )
 
 
 def _attribute_allowed(root: str, attributes: tuple[str, ...]) -> bool:
@@ -158,11 +195,28 @@ def validate_script(source: str) -> ast.Module:
     if len(source) > MAX_SCRIPT_CHARS:
         raise ScriptValidationError(f"Python code exceeds {MAX_SCRIPT_CHARS:,} characters.")
 
+    source_lines = source.splitlines()
+
+    def fail(node: ast.AST, message: str, *, suggestion: str | None = None, code: str | None = None) -> None:
+        line_no = getattr(node, "lineno", None)
+        col_offset = getattr(node, "col_offset", None)
+        source_line = source_lines[line_no - 1] if isinstance(line_no, int) and 1 <= line_no <= len(source_lines) else None
+        raise ScriptValidationError(
+            message, lineno=line_no, col_offset=col_offset,
+            source_line=source_line, suggestion=suggestion, code=code,
+        )
+
     try:
         tree = ast.parse(source, mode="exec")
     except SyntaxError as exc:
+        line_no = exc.lineno
+        source_line = source_lines[line_no - 1] if isinstance(line_no, int) and 1 <= line_no <= len(source_lines) else None
         raise ScriptValidationError(
-            f"Python syntax error at line {exc.lineno}: {exc.msg}"
+            f"Python syntax error: {exc.msg}",
+            lineno=line_no, col_offset=max(0, (exc.offset or 1) - 1),
+            source_line=source_line,
+            suggestion="Check the indicated line for missing brackets, quotes, commas, or indentation.",
+            code="python-syntax-error",
         ) from exc
 
     nodes = list(ast.walk(tree))
@@ -259,8 +313,16 @@ def validate_script(source: str) -> ast.Module:
 
         elif isinstance(node, ast.Attribute):
             chain = _attribute_chain(node)
-            if chain is None or not _attribute_allowed(*chain):
-                raise ScriptValidationError("Attribute access is not allowed for this object or property.")
+            if chain is not None and _attribute_allowed(*chain):
+                continue
+            if _is_motion_track_chain(node):
+                continue
+            expression = ast.get_source_segment(source, node) or ast.dump(node, include_attributes=False)
+            fail(
+                node, f"Unsupported attribute access: {expression}",
+                suggestion="Use documented handle properties. Animation tracks support scene.motion(object).track('position' | 'rotation' | 'scale').",
+                code="unsupported-attribute",
+            )
 
         elif isinstance(node, ast.BinOp):
             if not isinstance(node.op, _ALLOWED_BINARY_OPERATORS):
@@ -286,18 +348,41 @@ def validate_script(source: str) -> ast.Module:
             if isinstance(node.func, ast.Name):
                 if node.func.id == "range":
                     if id(node) not in allowed_range_calls:
-                        raise ScriptValidationError("range() is only allowed as a bounded for-loop iterator.")
+                        fail(node, "range() can only be used directly as a bounded for-loop iterator.", suggestion="Use: for index in range(10):", code="invalid-range-call")
                 else:
-                    raise ScriptValidationError("Only approved API methods and bounded range() calls are allowed.")
+                    fail(
+                        node, f"Unsupported function call: {node.func.id}().",
+                        suggestion="Python built-ins and custom functions are not exposed. Use documented blentopy API calls and math functions; range() is allowed only in a bounded for-loop.",
+                        code="unsupported-function",
+                    )
             else:
                 chain = _attribute_chain(node.func)
-                if chain is None or not _attribute_allowed(*chain):
-                    raise ScriptValidationError("Calls are limited to documented blentopy API methods.")
-                root, attributes = chain
+                if chain is None and _is_motion_track_chain(node.func):
+                    root, attributes = "motion", ("track",)
+                elif chain is None:
+                    expression = ast.get_source_segment(source, node.func) or ast.dump(node.func, include_attributes=False)
+                    fail(
+                        node, f"Unsupported chained API call: {expression}().",
+                        suggestion="Assign intermediate API results to variables. The supported direct chain is scene.motion(object).track(channel).",
+                        code="unsupported-call-chain",
+                    )
+                else:
+                    root, attributes = chain
+                    if not _attribute_allowed(root, attributes):
+                        expression = ast.get_source_segment(source, node.func) or ".".join(attributes)
+                        if root == "scene":
+                            available = ", ".join(sorted(SCENE_METHODS))
+                        elif root == "geo":
+                            available = ", ".join(sorted(GEOMETRY_METHODS))
+                        elif root == "mat":
+                            available = ", ".join(sorted(MATERIAL_METHODS))
+                        else:
+                            available = "documented scene, object, vector, motion, track, or math methods"
+                        fail(node, f"Unknown or unsupported API call: {expression}().", suggestion=f"Available methods for this API handle: {available}.", code="unknown-api-method")
                 method = attributes[-1]
                 if root == "math":
                     if len(attributes) != 1 or method not in _MATH_FUNCTIONS:
-                        raise ScriptValidationError("Math constants cannot be called.")
+                        fail(node, f"math.{method}() is not a callable math function.", suggestion="Use math.sin, math.cos, math.tan, math.radians, math.degrees, or math.sqrt.", code="invalid-math-call")
                 elif root == "studio":
                     allowed = (
                         method in STUDIO_METHODS
@@ -307,14 +392,14 @@ def validate_script(source: str) -> ast.Module:
                         or (attributes[0] == "mat" and method in MATERIAL_METHODS)
                     )
                     if not allowed:
-                        raise ScriptValidationError("Unknown blentopy API method.")
+                        fail(node, f"Unknown blentopy API method: {ast.get_source_segment(source, node.func) or method}().", suggestion="Check docs/AI_SYSTEM_PROMPT.md for the exact method name and argument list.", code="unknown-api-method")
                 elif method not in (
                     SCENE_METHODS | GEOMETRY_METHODS | MATERIAL_METHODS |
                     OBJECT_METHODS | VECTOR_METHODS | MOTION_METHODS | TRACK_METHODS
                 ):
-                    raise ScriptValidationError("This object method is not available in scene scripts.")
+                    fail(node, f"Method '{method}' is not available on this blentopy handle.", suggestion="Use documented scene, geometry/material, Object3D, vector .set(), motion .track(), or track .key() methods.", code="unsupported-handle-method")
             if any(keyword.arg is None for keyword in node.keywords):
-                raise ScriptValidationError("Keyword unpacking is not supported.")
+                fail(node, "Keyword argument unpacking (**mapping) is not supported.", suggestion="Pass each supported keyword argument explicitly.", code="keyword-unpacking")
 
         elif isinstance(node, ast.Constant):
             if not isinstance(node.value, (str, int, float, bool, type(None))):
