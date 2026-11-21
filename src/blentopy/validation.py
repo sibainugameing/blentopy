@@ -22,7 +22,7 @@ STUDIO_METHODS = frozenset({
 })
 SCENE_METHODS = frozenset({
     "configure", "mesh", "surface", "group", "add", "remove", "attach",
-    "place", "look_at", "frame", "align", "camera", "light", "find",
+    "place", "look_at", "frame", "align", "camera", "light", "find", "update", "set_material",
     "motion", "inspect", "validate",
 })
 GEOMETRY_METHODS = frozenset({
