@@ -8,7 +8,7 @@ import sys
 from pathlib import Path
 
 from .discovery import BlenderNotFoundError, blender_version, find_blender
-from .runner import RenderError, preview_script, render_script
+from .runner import RenderError, format_error_report, preview_script, render_script
 
 DEFAULT_EXAMPLE = Path(__file__).with_name("demo_scene.py")
 
@@ -66,10 +66,7 @@ def _render(args: argparse.Namespace, script: Path) -> int:
             fps=args.fps, duration_seconds=args.duration, timeout_seconds=args.timeout,
         )
     except (ValueError, FileNotFoundError, BlenderNotFoundError, RenderError) as exc:
-        print(f"Error: {exc}", file=sys.stderr)
-        log = getattr(exc, "log", "")
-        if log:
-            print(log[-12_000:], file=sys.stderr)
+        print(format_error_report(exc, script_path=script), file=sys.stderr)
         return 1
     print(f"Blender: {result.blender_executable}")
     print(f"Video:   {result.output_path}")
@@ -91,10 +88,7 @@ def _preview(args: argparse.Namespace) -> int:
             startup_timeout_seconds=args.startup_timeout,
         )
     except (ValueError, FileNotFoundError, BlenderNotFoundError, RenderError) as exc:
-        print(f"Error: {exc}", file=sys.stderr)
-        log = getattr(exc, "log", "")
-        if log:
-            print(log[-12_000:], file=sys.stderr)
+        print(format_error_report(exc, script_path=args.script), file=sys.stderr)
         return 1
     print(f"Blender GUI ready: {result.blender_executable}")
     print(f"Blender PID: {result.process_id}")
