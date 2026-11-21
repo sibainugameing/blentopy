@@ -395,7 +395,7 @@ hero_objects = scene.find(role="hero")
 ~~~
 
 - scene.find(role=None, id=None) returns one matching object handle when id is supplied, or a list of matching handles for a role query.
-- Pass a role-query result directly to bulk APIs such as scene.frame(camera, targets=hero_objects) or scene.align(hero_objects, axis="x"). The restricted scene language does not support arbitrary indexing or iteration over returned lists; use id=... when you need one specific object.
+- Pass a role-query result directly to bulk APIs such as scene.frame(camera, targets=hero_objects) or scene.align(hero_objects, axis="x"). Lists, tuples, and dictionaries support safe indexing with integer or string keys, and list/tuple/string slices with integer bounds. Use id=... when you need one specific object.
 - scene.inspect() returns a compact dictionary describing object IDs, types, roles, visibility, and positions.
 - scene.validate() reports missing cameras, empty scenes, and basic visibility/role warnings.
 
@@ -410,7 +410,7 @@ Allowed:
 - for loops using range() with one to three integer expressions, including previously assigned integer variables and basic integer arithmetic.
 - for loops over lists, tuples, and scene.find(role=...) results.
 - Nested loops up to 3 levels.
-- Lists, tuples, and dictionaries.
+- Lists, tuples, and dictionaries. Safe indexing (`items[index]`, `mapping["key"]`) and slices (`items[:3]`) are supported for recognized containers; indices must be integers for sequences, and string/integer keys for dictionaries.
 - Comparisons, boolean and / or / not, unary plus/minus, and arithmetic +, -, *, /, //, %.
 - Calls to documented studio, scene, geo, mat, object-handle, vector, motion, track, and math methods.
 - Direct method chaining is supported only for scene.motion(object).track(channel). For other API calls, assign the result to a variable before calling methods on it.
