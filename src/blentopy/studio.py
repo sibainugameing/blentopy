@@ -123,6 +123,18 @@ class Studio:
             raise ValueError(f"Object not found: {name}")
         return obj
 
+
+    def _active_object(self):
+        """Return the active object without relying on Context.object."""
+        view_layer = self._bpy.context.view_layer
+        obj = view_layer.objects.active
+        if obj is None:
+            raise RuntimeError(
+                "Blender did not make the newly created object active. "
+                "Check the active scene and view layer."
+            )
+        return obj
+
     def set_timeline(self, duration_seconds: float, fps: int | None = None) -> None:
         if not 0 < duration_seconds <= 120:
             raise ValueError("duration_seconds must be > 0 and <= 120.")
@@ -153,7 +165,7 @@ class Studio:
         scale: Vector3 = (5, 5, 1), color: Color = (0.08, 0.10, 0.14),
     ) -> str:
         self._bpy.ops.mesh.primitive_plane_add(size=1, location=location)
-        obj = self._bpy.context.object
+        obj = self._active_object()
         obj.name, obj.scale = name, tuple(scale)
         obj.data.materials.append(self._material(name, color))
         return obj.name
@@ -164,7 +176,7 @@ class Studio:
         metallic: float = 0.15, roughness: float = 0.35,
     ) -> str:
         self._bpy.ops.mesh.primitive_cube_add(size=1, location=location)
-        obj = self._bpy.context.object
+        obj = self._active_object()
         obj.name, obj.scale = name, tuple(scale)
         obj.data.materials.append(self._material(name, color, metallic, roughness))
         return obj.name
@@ -176,7 +188,7 @@ class Studio:
         self._bpy.ops.mesh.primitive_uv_sphere_add(
             segments=48, ring_count=24, location=location
         )
-        obj = self._bpy.context.object
+        obj = self._active_object()
         obj.name, obj.scale = name, tuple(scale)
         obj.data.materials.append(self._material(name, color))
         for polygon in obj.data.polygons:
@@ -192,7 +204,7 @@ class Studio:
             vertices=max(12, min(int(vertices), 128)), radius=1,
             depth=1, location=location,
         )
-        obj = self._bpy.context.object
+        obj = self._active_object()
         obj.name, obj.scale = name, tuple(scale)
         obj.data.materials.append(self._material(name, color, 0.35, 0.3))
         for polygon in obj.data.polygons:
@@ -211,7 +223,7 @@ class Studio:
         curve.align_x = align if align in {"LEFT", "CENTER", "RIGHT"} else "CENTER"
         curve.extrude = max(0, float(extrude))
         obj = self._bpy.data.objects.new(name, curve)
-        self._bpy.context.collection.objects.link(obj)
+        self.scene.collection.objects.link(obj)
         obj.location = tuple(location)
         obj.rotation_euler = tuple(rotation)
         obj.data.materials.append(self._material(name, color))
@@ -224,7 +236,7 @@ class Studio:
     ) -> str:
         data = self._bpy.data.cameras.new(f"{name} Data")
         camera = self._bpy.data.objects.new(name, data)
-        self._bpy.context.collection.objects.link(camera)
+        self.scene.collection.objects.link(camera)
         camera.location = tuple(location)
         direction = self._Vector(target) - camera.location
         if direction.length == 0:
@@ -248,7 +260,7 @@ class Studio:
         data.size = max(0.1, float(size))
         data.color = self._rgba(color)[:3]
         light = self._bpy.data.objects.new(name, data)
-        self._bpy.context.collection.objects.link(light)
+        self.scene.collection.objects.link(light)
         light.location = tuple(location)
         direction = self._Vector(target) - light.location
         if direction.length:
