@@ -751,9 +751,24 @@ blentopy preview examples/demo_scene.py \
 
 GUI preview requires a desktop session. It may not work in a headless environment such as an SSH session without a display.
 
-### Unknown Studio API method or unsupported Python syntax
+### Script validation error
 
-The script uses an API method or Python construct that is not currently allowed. Refer to the Studio API reference and rewrite the script using supported calls.
+Validation errors identify the source file, line, code, and a suggested correction when possible. Read the exact diagnostic before changing the script.
+
+The scene language is deliberately smaller than general Python. It does not expose built-ins such as `max()`, `min()`, `len()`, or `round()`. The only built-in call is `range()` directly in a bounded `for` loop. Use the API methods documented in [docs/AI_SYSTEM_PROMPT.md](docs/AI_SYSTEM_PROMPT.md).
+
+Both animation forms below are supported:
+
+```python
+motion = scene.motion(hero)
+track = motion.track("rotation")
+```
+
+```python
+track = scene.motion(hero).track("rotation")
+```
+
+Store the returned track in a variable before calling `track.key(...)`. Other method-call chains are not supported.
 
 For example, the following is not allowed:
 
