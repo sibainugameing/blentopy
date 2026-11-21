@@ -197,7 +197,9 @@ ground = scene.surface(
 - scene.mesh(id, geometry, material=None, role=None)
 - scene.surface(id, size=(10, 10), material=None, role="environment")
 - scene.group(id, children=(), role=None)
-- scene.add(object) registers an already-created object handle with the scene.
+- scene.add(object) reparents an object handle to the scene root.
+- scene.update(target, ...) changes selected transform, visibility, material, or role properties.
+- scene.set_material(target, material) replaces a mesh material.
 - scene.remove(object_or_id) removes an object.
 - Object IDs must be unique and should be descriptive, such as robot.head, car.wheel.front_left, or camera.closeup.
 - Use role="hero" for the primary subject, role="environment" for environment elements, and meaningful roles for other important objects.
@@ -248,6 +250,23 @@ hero.visible = True
 ~~~
 
 position and scale use world units and scale factors. Rotation uses radians. Prefer .set((x, y, z)) when setting all three components.
+
+### Targeted updates
+
+~~~python
+scene.update(
+    hero,
+    position=(1, 0, 2),
+    scale=(1.2, 1.2, 1.2),
+    visible=True,
+    material=mat.pbr(color="#FF5533", roughness=0.3),
+    role="hero",
+)
+scene.set_material(hero, mat.emissive(color="#33BBFF", strength=1.5))
+scene.update("robot.head", rotation=(0, 0, math.radians(20)))
+~~~
+
+The target can be an Object3D handle or its exact ID string. Omitted or None properties remain unchanged. These updates operate on the current in-memory scene. Each separate render or preview invocation currently starts a fresh scene; loading a previous .blend and carrying scene diffs across separate AI turns is not implemented yet.
 
 ## 9. Relationship-based spatial operations
 
@@ -353,7 +372,7 @@ hero_objects = scene.find(role="hero")
 - scene.inspect() returns a compact dictionary describing object IDs, types, roles, visibility, and positions.
 - scene.validate() reports missing cameras, empty scenes, and basic visibility/role warnings.
 
-The worker also performs basic validation for new-API scene objects and includes the report in the Blender log. Treat warnings as reasons to inspect and improve the scene, not as proof of a render defect.
+The worker also performs basic validation for new-API scene objects and includes the report in the Blender log. Treat warnings as reasons to inspect and improve the scene, not as proof of a render defect. Inspection data is returned by the API to the script; the worker emits the automatic validation report so the calling AI can read it from the render log.
 
 ## 13. Python scene-script language
 
