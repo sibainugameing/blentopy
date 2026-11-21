@@ -319,11 +319,16 @@ class SceneAPI:
 
     def _adopt_existing_objects(self) -> None:
         """Register objects loaded from a .blend so AI edits can target them."""
+        backend = getattr(self._owner, "_backend", None)
+        blender_scene = getattr(backend, "scene", None)
+        if blender_scene is None:
+            # SceneAPI is also unit-tested without an active Blender backend.
+            return
         kind_by_type = {
             "MESH": "mesh", "CURVE": "curve", "FONT": "text",
             "EMPTY": "group", "CAMERA": "camera", "LIGHT": "light",
         }
-        for object_ref in self._backend.scene.objects:
+        for object_ref in blender_scene.objects:
             kind = kind_by_type.get(object_ref.type, object_ref.type.lower())
             raw_id = object_ref.get("blentopy_id")
             object_id = str(raw_id) if raw_id else f"existing.{object_ref.name}"
@@ -335,7 +340,7 @@ class SceneAPI:
             raw_role = object_ref.get("blentopy_role")
             role = str(raw_role) if raw_role is not None else None
             handle = self._register(object_id, object_ref, kind, role)
-            if object_ref == self._backend.scene.camera:
+            if object_ref == blender_scene.camera:
                 self._camera = handle
 
     @property
