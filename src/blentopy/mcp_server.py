@@ -78,11 +78,11 @@ def load_ai_system_prompt() -> str:
     except (OSError, ModuleNotFoundError):
         return (
             "Create composed, animated scenes rather than a single rotating primitive. "
-            "Prefer studio.scene, studio.geo, and studio.mat; use stable object IDs, "
-            "semantic placement, camera framing, PBR materials, and second-based motion. "
-            "Use only documented API calls, conditionals, and statically bounded range() "
-            "loops (at most 3 nested levels and 4096 expanded iterations). Never use imports, "
-            "raw bpy, filesystem access, shell commands, functions, or unbounded loops."
+            "Prefer studio.scene, studio.geo, and studio.mat when useful, but use normal "
+            "Blender Python, bpy, mathutils, imports, built-ins, functions, comprehensions, "
+            "and Blender-native APIs freely when the facade is insufficient. Syntax preflight "
+            "does not impose an API whitelist or loop budget. Only execute trusted scripts; "
+            "the Blender process is not a security sandbox."
         )
 
 
@@ -106,10 +106,10 @@ def main() -> None:
             "blentopy_inspect_scene first and then blentopy_edit_scene; preserve unrelated geometry. "
             "Otherwise render with blentopy_render_scene.\n"
             "When a render, preview, or edit fails, read its stable Error code, exact source "
-            "location, diagnostic, and suggested fix. Correct only the reported issue, "
-            "revalidate, and retry at most twice with a changed script. Do not retry unchanged "
-            "input or retry conflicts, cancellations, unsupported Blender versions, or resource "
-            "exhaustion without first changing the cause. Preserve unrelated objects and stable IDs. "
+            "location, diagnostic, and traceback. Correct the actual cause and retry with changed "
+            "code when useful and within the operation timeout. Never repeat unchanged input or "
+            "retry conflicts, cancellations, unsupported Blender versions, or resource exhaustion "
+            "without first changing the cause. Preserve unrelated objects and stable IDs. "
             "Never report success unless the tool returns the saved project and/or rendered artifact.\n\n"
             + load_ai_system_prompt()
         ),
@@ -132,13 +132,12 @@ def main() -> None:
     ) -> str:
         """Run an AI-native scene script and export MP4 + .blend.
 
-        Prefer studio.scene, studio.geo, and studio.mat. Build Object3D handles
-        with scene.mesh()/group()/camera()/light(), compose geometry and PBR
-        materials, use semantic placement and scene.motion() tracks, and retain
-        stable object IDs. The legacy studio.add_* API remains supported.
-        Imports, raw bpy, filesystem/process/network access, functions, while loops,
-        and unbounded loops are rejected. Bounded conditionals and nested range loops
-        are supported under the validator budgets.
+        Prefer studio.scene, studio.geo, and studio.mat for concise common
+        operations, but use normal Python and Blender's complete bpy/mathutils API
+        whenever useful. Imports, built-ins, functions, classes, comprehensions,
+        while loops, Blender operators, modifiers, node trees, simulations, and
+        direct data access are available. Preflight checks syntax and input size only;
+        it does not whitelist Python constructs or Blender API methods.
         """
         script: Path | None = None
         try:

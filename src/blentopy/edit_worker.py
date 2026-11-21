@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import builtins
 import json
 import math
 import os
@@ -16,6 +17,8 @@ def main() -> int:
         if package_parent not in sys.path:
             sys.path.insert(0, package_parent)
 
+        import bpy
+        import mathutils
         from blentopy.ai_native import AIStudio
         from blentopy.validation import validate_script
 
@@ -48,17 +51,21 @@ def main() -> int:
             existing_project=str(source_blend),
         )
 
+        bpy = studio._backend._bpy
         if code is not None:
             namespace = {
+                "__name__": "__blentopy_scene__",
+                "__file__": str(script_path),
+                "__package__": None,
+                "__builtins__": builtins.__dict__,
                 "studio": studio,
+                "bpy": bpy,
                 "math": math,
-                "range": range,
-                "__builtins__": {},
+                "mathutils": mathutils,
             }
             print("BLENTOPY_STAGE=applying_scene_edit", flush=True)
             exec(code, namespace, namespace)
 
-        bpy = studio._backend._bpy
         bpy.context.view_layer.update()
         snapshot = studio.scene.inspect()
         report = studio.scene.validate()

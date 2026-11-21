@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import builtins
 import json
 import math
 import os
@@ -28,6 +29,7 @@ def main() -> int:
             sys.path.insert(0, package_parent)
 
         import bpy
+        import mathutils
         from blentopy.ai_native import AIStudio
         from blentopy.validation import validate_script
 
@@ -46,7 +48,16 @@ def main() -> int:
             width=width, height=height, fps=fps, duration_seconds=duration,
         )
         code = compile(tree, str(script_path), "exec")
-        namespace = {"studio": studio, "math": math, "range": range, "__builtins__": {}}
+        namespace = {
+            "__name__": "__blentopy_scene__",
+            "__file__": str(script_path),
+            "__package__": None,
+            "__builtins__": builtins.__dict__,
+            "studio": studio,
+            "bpy": bpy,
+            "math": math,
+            "mathutils": mathutils,
+        }
         exec(code, namespace, namespace)
         scene_snapshot = studio.scene.inspect()
         report = studio.scene.validate()

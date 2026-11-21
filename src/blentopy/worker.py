@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import builtins
 import json
 import math
 import os
@@ -16,8 +17,10 @@ def main() -> int:
         if package_parent not in sys.path:
             sys.path.insert(0, package_parent)
 
+        import bpy
+        import mathutils
         from blentopy.ai_native import AIStudio
-        from blentopy.validation import validate_script, _bounded_range, _bounded_loop_iterator
+        from blentopy.validation import validate_script
 
         script_path = Path(os.environ["BLENTOPY_SCRIPT"]).resolve(strict=True)
         workspace = Path(os.environ["BLENTOPY_WORKSPACE"]).resolve()
@@ -34,15 +37,15 @@ def main() -> int:
             width=width, height=height, fps=fps, duration_seconds=duration,
         )
         code = compile(tree, str(script_path), "exec")
-        loop_budget = {"iterations": 0, "expansion_cost": 0}
         namespace = {
+            "__name__": "__blentopy_scene__",
+            "__file__": str(script_path),
+            "__package__": None,
+            "__builtins__": builtins.__dict__,
             "studio": studio,
+            "bpy": bpy,
             "math": math,
-            "range": _bounded_range,
-            "__blentopy_bounded_iter__": lambda iterable, node_cost: (
-                _bounded_loop_iterator(iterable, node_cost, loop_budget)
-            ),
-            "__builtins__": {},
+            "mathutils": mathutils,
         }
         print("BLENTOPY_STAGE=building_scene", flush=True)
         exec(code, namespace, namespace)
