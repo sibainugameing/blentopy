@@ -382,7 +382,7 @@ scale_track.key(at=1, value=(1.2, 1.2, 1.2), ease="smooth")
 - scene.motion(object) returns a motion controller.
 - motion.track("position" | "rotation" | "scale") creates a transform track.
 - The direct chained form scene.motion(object).track("position" | "rotation" | "scale") is also supported.
-- Store the returned track in a variable, then call track.key(...); do not chain .key() directly onto scene.motion(...).track(...).
+- Store the returned track in a variable, then call track.key(...). The key() method returns None, so chaining key() to another call is not useful; this is an API return-value detail, not a Python syntax restriction.
 - track.key(at, value, ease="smooth") inserts a keyframe.
 - ease accepts smooth, linear, or constant.
 - Keyframe times must be within the configured duration.

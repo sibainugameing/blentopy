@@ -1946,20 +1946,26 @@ class SceneAPI(SceneFeatureMixin):
             if len(color) != 3 or not all(math.isfinite(channel) and 0 <= channel <= 1 for channel in color):
                 errors.append(f"Light '{light.name}' color must contain finite RGB channels in [0, 1].")
 
+        registered_objects = [
+            item._object for item in self._objects.values()
+        ]
         for item in self._objects.values():
             if not item.visible:
                 warnings.append(f"Object '{item.id}' is hidden.")
+        for obj in scene.objects:
+            if obj in registered_objects or not hasattr(obj, "matrix_world"):
+                continue
             try:
                 matrix_values = [
                     float(value)
-                    for row in item._object.matrix_world
+                    for row in obj.matrix_world
                     for value in row
                 ]
             except (ReferenceError, TypeError, ValueError):
-                errors.append(f"Object '{item.id}' has an invalid transform matrix.")
+                errors.append(f"Object '{obj.name}' has an invalid transform matrix.")
             else:
                 if not all(math.isfinite(value) for value in matrix_values):
-                    errors.append(f"Object '{item.id}' has a non-finite world transform.")
+                    errors.append(f"Object '{obj.name}' has a non-finite world transform.")
 
         registered_heroes = [
             item._object for item in self._objects.values() if item.role == "hero"
@@ -2005,7 +2011,8 @@ class SceneAPI(SceneFeatureMixin):
             "ok": not errors,
             "errors": errors,
             "warnings": warnings,
-            "object_count": len(self._objects),
+            "object_count": len(scene.objects),
+            "registered_object_count": len(self._objects),
             "resource_usage": usage,
             "resource_limits": limits,
             "render_settings": {
