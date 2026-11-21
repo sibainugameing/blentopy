@@ -264,6 +264,10 @@ def validate_script(source: str) -> ast.Module:
             if not isinstance(node.op, _ALLOWED_BINARY_OPERATORS):
                 raise ScriptValidationError("Only +, -, *, /, //, and % arithmetic is supported.")
 
+        elif isinstance(node, ast.AugAssign):
+            if not isinstance(node.op, _ALLOWED_BINARY_OPERATORS):
+                raise ScriptValidationError("Unsupported augmented assignment operator.")
+
         elif isinstance(node, ast.UnaryOp):
             if not isinstance(node.op, (ast.UAdd, ast.USub, ast.Not)):
                 raise ScriptValidationError("Unsupported unary operator.")
