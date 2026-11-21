@@ -57,7 +57,7 @@ for row in range(4):
         cases = (
             "for i in range(count):\n    studio.add_cube('x')",
             "for i in range(1000):\n    studio.add_cube('x')",
-            "for i in range(16):\n    for j in range(16):\n        studio.add_cube('x')",
+            "for i in range(65):\n    for j in range(16):\n        studio.add_cube('x')",
             "for a in range(2):\n    for b in range(2):\n        for c in range(2):\n            for d in range(2):\n                studio.add_cube('x')",
             "while True:\n    studio.add_cube('x')",
             "for i in range(8):\n    pass",
