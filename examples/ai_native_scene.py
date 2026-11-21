@@ -111,6 +111,7 @@ hero_spin = hero_motion.track("rotation")
 hero_spin.key(at=0, value=(0, 0, 0), ease="linear")
 hero_spin.key(at=8, value=(0, 0, math.tau), ease="linear")
 
-ring_spin = scene.motion(energy_ring).track("rotation")
+ring_motion = scene.motion(energy_ring)
+ring_spin = ring_motion.track("rotation")
 ring_spin.key(at=0, value=(math.radians(68), 0, 0), ease="linear")
 ring_spin.key(at=8, value=(math.radians(68), 0, -math.tau), ease="linear")
