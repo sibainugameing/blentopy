@@ -329,6 +329,8 @@ class SceneAPI:
             raise ValueError("duration must be greater than 0 and at most 120 seconds.")
         if type(fps) is not int or not 1 <= fps <= 60:
             raise ValueError("fps must be an integer between 1 and 60.")
+        if round(float(duration) * fps) < 1:
+            raise ValueError("duration and fps must produce at least one frame.")
         self._duration = float(duration)
         self._fps = int(fps)
         self._backend.set_timeline(self._duration, self._fps)
@@ -774,7 +776,10 @@ class SceneAPI:
     def inspect(self) -> dict[str, Any]:
         return {
             "object_count": len(self._objects),
-            "camera": self._camera.id if self._camera else None,
+            "camera": (
+                self._camera.id if self._camera else
+                (self._backend.scene.camera.name if self._backend.scene.camera else None)
+            ),
             "objects": [
                 {
                     "id": item.id,
@@ -790,10 +795,10 @@ class SceneAPI:
     def validate(self) -> dict[str, Any]:
         errors: list[str] = []
         warnings: list[str] = []
-        if self._camera is None or self._backend.scene.camera is None:
+        if self._backend.scene.camera is None:
             errors.append("No active camera is configured.")
-        if not self._objects:
-            errors.append("The scene contains no objects.")
+        if not any(obj.type in {"MESH", "CURVE", "FONT"} for obj in self._backend.scene.objects):
+            errors.append("The scene contains no renderable geometry.")
         if not any(item.role == "hero" for item in self._objects.values()):
             warnings.append("No object has role='hero'.")
         for item in self._objects.values():
