@@ -33,11 +33,11 @@ def load_ai_system_prompt() -> str:
     except OSError:
         return (
             "Create composed, animated scenes rather than a single rotating primitive. "
-            "Use only documented Studio API calls, a bounded range() loop, and basic "
-            "arithmetic. Plan a visual hook, development, a payoff, camera movement, "
-            "layered composition, coherent materials, and key/fill/rim lighting. "
-            "Never use imports, raw bpy, filesystem access, shell commands, nested loops, "
-            "or conditional statements."
+            "Prefer studio.scene, studio.geo, and studio.mat; use stable object IDs, "
+            "semantic placement, camera framing, PBR materials, and second-based motion. "
+            "Use only documented API calls, conditionals, and statically bounded range() "
+            "loops (at most 3 nested levels and 4096 expanded iterations). Never use imports, "
+            "raw bpy, filesystem access, shell commands, functions, or unbounded loops."
         )
 
 
@@ -76,13 +76,15 @@ def main() -> None:
         width: int = 1080, height: int = 1920, fps: int = 30,
         duration_seconds: int = 8,
     ) -> str:
-        """Run a constrained Studio API scene script and export MP4 + .blend.
+        """Run an AI-native scene script and export MP4 + .blend.
 
-        The script receives studio, math, and a bounded range() iterator. Use
-        documented calls such as studio.add_cube(), studio.add_torus(),
-        studio.add_camera(), studio.animate_camera(), and studio.add_audio().
-        Imports, raw bpy, filesystem access, shell commands, networking, nested
-        or unbounded loops, conditionals, and function definitions are rejected.
+        Prefer studio.scene, studio.geo, and studio.mat. Build Object3D handles
+        with scene.mesh()/group()/camera()/light(), compose geometry and PBR
+        materials, use semantic placement and scene.motion() tracks, and retain
+        stable object IDs. The legacy studio.add_* API remains supported.
+        Imports, raw bpy, filesystem/process/network access, functions, while loops,
+        and unbounded loops are rejected. Bounded conditionals and nested range loops
+        are supported under the validator budgets.
         """
         try:
             validate_script(python_code)
@@ -118,10 +120,11 @@ def main() -> None:
         width: int = 1080, height: int = 1920, fps: int = 30,
         duration_seconds: int = 8,
     ) -> str:
-        """Open a scene in the interactive Blender GUI without rendering an MP4.
+        """Open an AI-native scene script in the Blender GUI without rendering MP4.
 
-        Use this when the user wants to watch the scene being built or inspect/edit
-        the result in Blender. Blender remains open after the scene is saved.
+        Prefer studio.scene / studio.geo / studio.mat and stable Object3D handles.
+        The legacy Studio API remains supported. Use this when the user wants to
+        inspect or edit the scene in Blender; Blender remains open after saving.
         """
         try:
             validate_script(python_code)
