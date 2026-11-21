@@ -302,7 +302,7 @@ New scripts do not access bpy directly. The full authoring contract, including a
 - Define geometry with studio.geo and materials with studio.mat, then create objects through studio.scene.
 - Use Object3D handles and their position, rotation, scale, and visible properties instead of looking objects up by display name.
 - Prefer semantic placement with scene.place(), scene.attach(), scene.look_at(), and scene.frame() over manual coordinate calculations.
-- Use scene.motion(object).track("position" | "rotation" | "scale") and keyframes measured in seconds.
+- Create a controller with motion = scene.motion(object), then use motion.track("position" | "rotation" | "scale") and keyframes measured in seconds.
 - Rotation values use radians in the new API. Legacy animate_rotation() continues to accept degrees.
 - Scene scripts support assignments, if/elif/else, comparisons, boolean expressions, and bounded nested range() loops.
 - Each loop is limited to 128 iterations; nesting is limited to three levels; total expanded loop iterations are limited to 4,096.
