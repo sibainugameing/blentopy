@@ -372,7 +372,7 @@ hero_objects = scene.find(role="hero")
 - scene.inspect() returns a compact dictionary describing object IDs, types, roles, visibility, and positions.
 - scene.validate() reports missing cameras, empty scenes, and basic visibility/role warnings.
 
-The worker also performs basic validation for new-API scene objects and includes the report in the Blender log. Treat warnings as reasons to inspect and improve the scene, not as proof of a render defect. Inspection data is returned by the API to the script; the worker emits the automatic validation report so the calling AI can read it from the render log.
+The worker emits a JSON scene snapshot and a JSON validation report to the Blender log for new-API objects. This lets the calling AI inspect object IDs, roles, transforms, visibility, and camera presence from the returned render/preview log. Treat warnings as reasons to inspect and improve the scene, not as proof of a render defect.
 
 ## 13. Python scene-script language
 
