@@ -41,7 +41,17 @@ def build_parser() -> argparse.ArgumentParser:
         "preview", help="Open the scene in the interactive Blender GUI without rendering a video."
     )
     preview.add_argument("script", type=Path)
-    add_render_options(preview)
+    preview.add_argument("--blender", help="Path to Blender executable.")
+    preview.add_argument("--blend-output", help="Output .blend path.")
+    preview.add_argument("--workspace", help="Workspace for audio assets.")
+    preview.add_argument("--width", type=int, default=720)
+    preview.add_argument("--height", type=int, default=1280)
+    preview.add_argument("--fps", type=int, default=30)
+    preview.add_argument("--duration", type=int, default=8, help="Scene duration in seconds.")
+    preview.add_argument(
+        "--startup-timeout", type=int, default=120,
+        help="Seconds to wait for Blender to save the preview scene (1-600).",
+    )
     return parser
 
 
@@ -70,20 +80,26 @@ def _render(args: argparse.Namespace, script: Path) -> int:
 
 
 def _preview(args: argparse.Namespace) -> int:
-    output = Path(args.output) if args.output else Path("renders") / f"{args.script.stem}.mp4"
+    output = Path("renders") / f"{args.script.stem}.mp4"
     blend = Path(args.blend_output) if args.blend_output else output.with_suffix(".blend")
     workspace = Path(args.workspace) if args.workspace else Path("blentopy-workspace")
     try:
-        executable, blend_path = preview_script(
+        result = preview_script(
             args.script, output_path=output, blend_path=blend, workspace=workspace,
             blender=args.blender, width=args.width, height=args.height,
             fps=args.fps, duration_seconds=args.duration,
+            startup_timeout_seconds=args.startup_timeout,
         )
     except (ValueError, FileNotFoundError, BlenderNotFoundError, RenderError) as exc:
         print(f"Error: {exc}", file=sys.stderr)
+        log = getattr(exc, "log", "")
+        if log:
+            print(log[-12_000:], file=sys.stderr)
         return 1
-    print(f"Started Blender GUI: {executable}")
-    print(f"Scene will be saved to: {blend_path}")
+    print(f"Blender GUI ready: {result.blender_executable}")
+    print(f"Blender PID: {result.process_id}")
+    print(f"Saved scene: {result.blend_path}")
+    print(f"Blender log: {result.log_path}")
     print("The GUI remains open. Close Blender normally when finished.")
     return 0
 
@@ -98,6 +114,7 @@ def main(argv: list[str] | None = None) -> int:
             print(f"Blender: NOT FOUND\n{exc}", file=sys.stderr)
             return 1
         print(f"Blender: {version}\nExecutable: {executable}")
+        print(f"CLI module: {Path(__file__).resolve()}")
         print(f"MCP SDK: {'installed' if importlib.util.find_spec('mcp') else 'not installed (optional)'}")
         return 0
     if args.command == "demo":

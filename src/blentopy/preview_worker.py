@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 import math
 import os
 import sys
@@ -9,7 +10,18 @@ import traceback
 from pathlib import Path
 
 
+def _write_status(status_path: str | None, payload: dict[str, str]) -> None:
+    if not status_path:
+        return
+    destination = Path(status_path).expanduser().resolve()
+    destination.parent.mkdir(parents=True, exist_ok=True)
+    temporary = destination.with_name(destination.name + ".tmp")
+    temporary.write_text(json.dumps(payload, ensure_ascii=False), encoding="utf-8")
+    os.replace(temporary, destination)
+
+
 def main() -> int:
+    status_path = os.environ.get("BLENTOPY_PREVIEW_STATUS")
     try:
         package_parent = str(Path(__file__).resolve().parents[1])
         if package_parent not in sys.path:
@@ -37,17 +49,46 @@ def main() -> int:
         namespace = {"studio": studio, "math": math, "__builtins__": {}}
         exec(code, namespace, namespace)
 
-        # Keep the content scene active so the GUI opens on the editable 3D scene.
-        if bpy.context.window is not None:
-            bpy.context.window.scene = studio.scene
+        # Keep the editable content scene active in every Blender window.
+        for window in bpy.context.window_manager.windows:
+            window.scene = studio.scene
+
+        # Open in camera view when the scene defines a camera and show material colors.
+        for screen in bpy.data.screens:
+            for area in screen.areas:
+                if area.type != "VIEW_3D":
+                    continue
+                space = area.spaces.active
+                if studio.scene.camera is not None:
+                    space.region_3d.view_perspective = "CAMERA"
+                try:
+                    space.shading.color_type = "MATERIAL"
+                except (AttributeError, TypeError, ValueError):
+                    pass
+
         studio.scene.frame_set(studio.scene.frame_start)
+        bpy.context.view_layer.update()
         bpy.ops.wm.save_as_mainfile(filepath=str(blend))
+        if not blend.is_file():
+            raise RuntimeError(f"Blender did not create the project file: {blend}")
+
+        _write_status(status_path, {"status": "ready", "blend": str(blend)})
         print(f"BLENTOPY_PREVIEW_READY={blend}", flush=True)
         return 0
-    except Exception:
-        traceback.print_exc()
+    except Exception as exc:
+        error = traceback.format_exc()
+        print(error, file=sys.stderr, flush=True)
+        try:
+            _write_status(
+                status_path,
+                {"status": "error", "error": f"{type(exc).__name__}: {exc}"},
+            )
+        except Exception:
+            traceback.print_exc()
         return 1
 
 
 if __name__ == "__main__":
-    raise SystemExit(main())
+    # Do not raise SystemExit here: Blender treats it as an application exit.
+    # Returning from the script leaves the interactive GUI event loop running.
+    main()

@@ -33,6 +33,16 @@ From the repository root:
     source .venv/bin/activate
     python -m pip install -e .
 
+After pulling a repository update that adds a CLI command, refresh the editable install
+from the same activated virtual environment:
+
+    python -m pip install -e . --force-reinstall
+    blentopy --help
+
+If the CLI reports that preview is an invalid choice, the shell is using an older installed
+entry point or a different Python environment. Run the reinstall above from the repository
+root, then verify that blentopy --help lists preview.
+
 For MCP support:
 
     python -m pip install -e '.[mcp]'
@@ -53,16 +63,17 @@ To open a scene script in the interactive Blender application without starting a
 
     blentopy preview examples/demo_scene.py
 
-This launches Blender in GUI mode, executes the validated scene script, saves an editable .blend file, and leaves Blender open so you can inspect and edit the result. The default project path is renders/demo_scene.blend.
+This launches Blender in GUI mode, executes the validated scene script, waits until the editable .blend file is saved, and leaves Blender open so you can inspect and edit the result. The default project path is renders/demo_scene.blend. Blender's startup log is saved next to the .blend file.
 
 You can override the Blender executable and output paths:
 
     blentopy preview examples/demo_scene.py \
         --blender /Applications/Blender.app/Contents/MacOS/Blender \
         --blend-output renders/preview.blend \
-        --workspace blentopy-workspace
+        --workspace blentopy-workspace \
+        --startup-timeout 120
 
-The preview command does not render an MP4. Use the render command when you want final video output.
+The preview command does not render an MP4. It reports success only after the .blend file has been written. The Blender GUI stays open after the preview worker returns. The startup timeout can be adjusted with --startup-timeout (1-600 seconds). Use the render command when you want final video output.
 
 ## Render the sample
 

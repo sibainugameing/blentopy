@@ -116,17 +116,20 @@ def main() -> None:
             blend = renders / f"{slug}-{stamp}.blend"
             script.write_text(python_code.rstrip() + "\n", encoding="utf-8")
 
-            executable, blend_path = preview_script(
+            result = preview_script(
                 script, output_path=video, blend_path=blend, workspace=workspace,
                 width=width, height=height, fps=fps, duration_seconds=duration_seconds,
             )
             return (
-                f"Interactive Blender GUI launched: {executable}\n"
-                f"Editable scene will be saved at: {blend_path}\n"
+                f"Blender GUI ready: {result.blender_executable}\n"
+                f"Process ID: {result.process_id}\n"
+                f"Saved scene: {result.blend_path}\n"
+                f"Blender log: {result.log_path}\n"
                 "No MP4 render was started. Blender remains open for inspection and editing."
             )
         except (ScriptValidationError, ValueError, OSError, BlenderNotFoundError, RenderError) as exc:
-            return f"Preview failed: {exc}"
+            detail = getattr(exc, "log", "")
+            return f"Preview failed: {exc}" + (f"\nBlender log:\n{detail[-8000:]}" if detail else "")
 
     @server.tool()
     def blentopy_list_outputs() -> str:

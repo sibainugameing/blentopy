@@ -1,6 +1,25 @@
+import json
+import tempfile
 import unittest
+from pathlib import Path
+from unittest.mock import patch
 
-from blentopy.runner import validate_render_settings
+from blentopy.cli import build_parser
+from blentopy.runner import RenderError, preview_script, validate_render_settings
+
+
+class _RunningProcess:
+    pid = 4321
+
+    def poll(self):
+        return None
+
+
+class _ExitedProcess:
+    pid = 4322
+
+    def poll(self):
+        return 17
 
 
 class RenderSettingsTests(unittest.TestCase):
@@ -18,6 +37,76 @@ class RenderSettingsTests(unittest.TestCase):
     def test_rejects_invalid_fps(self):
         with self.assertRaises(ValueError):
             validate_render_settings(720, 1280, 0, 8)
+
+
+class PreviewRunnerTests(unittest.TestCase):
+    def test_preview_waits_for_saved_blend_and_keeps_gui_process(self):
+        with tempfile.TemporaryDirectory() as folder:
+            root = Path(folder)
+            script = root / "scene.py"
+            script.write_text('studio.add_cube("Cube")\n', encoding="utf-8")
+            captured = {}
+
+            def launch(command, **kwargs):
+                captured["command"] = command
+                env = kwargs["env"]
+                blend = Path(env["BLENTOPY_BLEND"])
+                blend.write_text("test blend", encoding="utf-8")
+                Path(env["BLENTOPY_PREVIEW_STATUS"]).write_text(
+                    json.dumps({"status": "ready", "blend": str(blend)}),
+                    encoding="utf-8",
+                )
+                kwargs["stdout"].write("preview saved\n")
+                kwargs["stdout"].flush()
+                return _RunningProcess()
+
+            with patch("blentopy.runner.find_blender", return_value="/fake/Blender"):
+                with patch("blentopy.runner.subprocess.Popen", side_effect=launch) as popen:
+                    result = preview_script(
+                        script,
+                        output_path=root / "preview.mp4",
+                        blend_path=root / "preview.blend",
+                        workspace=root / "workspace",
+                        startup_timeout_seconds=2,
+                    )
+
+            self.assertEqual(result.blender_executable, "/fake/Blender")
+            self.assertEqual(result.process_id, 4321)
+            self.assertTrue(result.blend_path.is_file())
+            self.assertTrue(result.log_path.is_file())
+            self.assertIn("--factory-startup", captured["command"])
+            self.assertIn("--python-exit-code", captured["command"])
+            self.assertNotIn("--background", captured["command"])
+            self.assertEqual(popen.call_count, 1)
+
+    def test_preview_reports_blender_exit_before_scene_is_ready(self):
+        with tempfile.TemporaryDirectory() as folder:
+            root = Path(folder)
+            script = root / "scene.py"
+            script.write_text('studio.add_cube("Cube")\n', encoding="utf-8")
+
+            def launch(command, **kwargs):
+                kwargs["stdout"].write("Blender failed to initialize\n")
+                kwargs["stdout"].flush()
+                return _ExitedProcess()
+
+            with patch("blentopy.runner.find_blender", return_value="/fake/Blender"):
+                with patch("blentopy.runner.subprocess.Popen", side_effect=launch):
+                    with self.assertRaisesRegex(RenderError, "exited before the preview"):
+                        preview_script(
+                            script,
+                            output_path=root / "preview.mp4",
+                            blend_path=root / "preview.blend",
+                            workspace=root / "workspace",
+                            startup_timeout_seconds=2,
+                        )
+
+    def test_cli_exposes_preview_and_startup_timeout(self):
+        args = build_parser().parse_args([
+            "preview", "scene.py", "--startup-timeout", "45",
+        ])
+        self.assertEqual(args.command, "preview")
+        self.assertEqual(args.startup_timeout, 45)
 
 
 if __name__ == "__main__":

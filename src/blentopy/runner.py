@@ -2,8 +2,11 @@
 
 from __future__ import annotations
 
+import json
 import os
 import subprocess
+import time
+import uuid
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -18,6 +21,14 @@ class RenderResult:
     blend_path: Path
     return_code: int
     log: str
+
+
+@dataclass(frozen=True)
+class PreviewResult:
+    blender_executable: str
+    blend_path: Path
+    log_path: Path
+    process_id: int
 
 
 class RenderError(RuntimeError):
@@ -125,28 +136,137 @@ def render_script(
     return RenderResult(executable, output, blend, completed.returncode, log)
 
 
+def _read_preview_log(path: Path) -> str:
+    try:
+        return path.read_text(encoding="utf-8", errors="replace")
+    except OSError:
+        return ""
+
+
+def _stop_preview_process(process: subprocess.Popen[str]) -> None:
+    """Stop a GUI process that failed to become ready within the startup deadline."""
+    try:
+        process.terminate()
+        try:
+            process.wait(timeout=3)
+        except subprocess.TimeoutExpired:
+            process.kill()
+            process.wait(timeout=3)
+    except (OSError, subprocess.TimeoutExpired):
+        pass
+
+
 def preview_script(
     script_path: str | Path, *, output_path: str | Path,
     blend_path: str | Path | None = None, workspace: str | Path | None = None,
     blender: str | None = None, width: int = 720, height: int = 1280,
     fps: int = 30, duration_seconds: int = 8,
-) -> tuple[str, Path]:
-    """Open Blender's GUI, build the scene, save the .blend, and keep the GUI open."""
+    startup_timeout_seconds: int = 120,
+) -> PreviewResult:
+    """Open Blender's GUI and return only after the editable scene is saved."""
     validate_render_settings(width, height, fps, duration_seconds)
+    if not 1 <= startup_timeout_seconds <= 600:
+        raise ValueError("startup_timeout_seconds must be between 1 and 600 seconds.")
+
     source, output, blend, workspace_dir = _resolve_scene_paths(
         script_path, output_path, blend_path, workspace
     )
     executable = find_blender(blender)
     worker = Path(__file__).with_name("preview_worker.py").resolve()
+    if not worker.is_file():
+        raise RenderError(
+            "The installed blentopy package is missing preview_worker.py. "
+            "Update the repository and reinstall it with: "
+            "python -m pip install -e . --force-reinstall"
+        )
+
+    token = uuid.uuid4().hex
+    status_path = workspace_dir / f".blentopy-preview-{token}.json"
+    log_path = blend.with_name(f"{blend.stem}-{token}.preview.log")
+    env = _prepare_scene_environment(
+        source, output, blend, workspace_dir, width, height, fps, duration_seconds
+    )
+    env["BLENTOPY_PREVIEW_STATUS"] = str(status_path)
     command = [
         executable, "--factory-startup", "--python-exit-code", "1",
         "--python", str(worker),
     ]
-    env = _prepare_scene_environment(
-        source, output, blend, workspace_dir, width, height, fps, duration_seconds
-    )
+
     try:
-        process = subprocess.Popen(command, env=env)
-    except OSError as exc:
-        raise RenderError(f"Failed to launch Blender GUI: {exc}") from exc
-    return executable, blend
+        with log_path.open("w", encoding="utf-8") as log_stream:
+            try:
+                process = subprocess.Popen(
+                    command,
+                    env=env,
+                    stdin=subprocess.DEVNULL,
+                    stdout=log_stream,
+                    stderr=subprocess.STDOUT,
+                )
+            except OSError as exc:
+                raise RenderError(f"Failed to launch Blender GUI: {exc}") from exc
+
+            deadline = time.monotonic() + startup_timeout_seconds
+            while True:
+                if status_path.is_file():
+                    try:
+                        status = json.loads(status_path.read_text(encoding="utf-8"))
+                    except (OSError, json.JSONDecodeError) as exc:
+                        log_stream.flush()
+                        raise RenderError(
+                            f"Could not read Blender preview status: {exc}",
+                            log=_read_preview_log(log_path),
+                        ) from exc
+                    finally:
+                        status_path.unlink(missing_ok=True)
+
+                    log_stream.flush()
+                    log = _read_preview_log(log_path)
+                    if status.get("status") == "error":
+                        detail = status.get("error", "Unknown scene setup error.")
+                        raise RenderError(
+                            f"Blender opened, but scene setup failed: {detail}",
+                            log=log,
+                        )
+                    if status.get("status") != "ready":
+                        raise RenderError(
+                            "Blender returned an invalid preview status.",
+                            log=log,
+                        )
+                    if not blend.is_file():
+                        raise RenderError(
+                            f"Blender reported success but the .blend file is missing: {blend}",
+                            log=log,
+                        )
+                    if process.poll() is not None:
+                        raise RenderError(
+                            "Blender saved the scene but the GUI process closed unexpectedly.",
+                            log=log,
+                        )
+                    return PreviewResult(
+                        blender_executable=executable,
+                        blend_path=blend,
+                        log_path=log_path,
+                        process_id=process.pid,
+                    )
+
+                return_code = process.poll()
+                if return_code is not None:
+                    log_stream.flush()
+                    raise RenderError(
+                        "Blender exited before the preview scene was ready "
+                        f"(exit code {return_code}).",
+                        log=_read_preview_log(log_path),
+                    )
+
+                if time.monotonic() >= deadline:
+                    _stop_preview_process(process)
+                    log_stream.flush()
+                    raise RenderError(
+                        f"Blender did not finish opening the preview within "
+                        f"{startup_timeout_seconds} seconds.",
+                        log=_read_preview_log(log_path),
+                    )
+
+                time.sleep(0.1)
+    finally:
+        status_path.unlink(missing_ok=True)
