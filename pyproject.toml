@@ -29,6 +29,7 @@ test = ["pytest>=8"]
 
 [project.scripts]
 blentopy = "blentopy.cli:main"
+blentopy-gui = "blentopy.gui:main"
 blentopy-mcp = "blentopy.mcp_server:main"
 
 [tool.setuptools]
