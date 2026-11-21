@@ -1,7 +1,9 @@
 import unittest
 from pathlib import Path
 
-from blentopy.validation import (\n    ScriptValidationError, _bounded_loop_iterator, _bounded_range, validate_script,\n)
+from blentopy.validation import (
+    ScriptValidationError, _bounded_loop_iterator, _bounded_range, validate_script,
+)
 
 
 class ScriptValidationTests(unittest.TestCase):
