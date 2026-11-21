@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import re
 import os
 import subprocess
 import time
@@ -35,6 +36,58 @@ class RenderError(RuntimeError):
     def __init__(self, message: str, *, log: str = "") -> None:
         super().__init__(message)
         self.log = log
+
+
+def format_error_report(exc: Exception, *, script_path: str | Path | None = None) -> str:
+    """Explain Blender failures using traceback, source context, and likely fixes."""
+    lines = [f"Error: {exc}"]
+    log = getattr(exc, "log", "") or ""
+    if not log:
+        return "\n".join(lines)
+    log_lines = log.splitlines()
+    frames = list(re.finditer(r'File "([^"]+)", line (\d+)(?:, in ([^"]+))?', log))
+    if frames:
+        frame = frames[-1]
+        filename, line_no = frame.group(1), int(frame.group(2))
+        func = frame.group(3) or "<module>"
+        lines.extend(["", "Details:", f"  Location: {filename}:{line_no} ({func})"])
+        source = Path(filename)
+        if script_path and source.name == Path(script_path).name:
+            source = Path(script_path)
+        try:
+            source_lines = source.read_text(encoding="utf-8").splitlines()
+            lo, hi = max(1, line_no - 2), min(len(source_lines), line_no + 2)
+            lines.append("  Code context:")
+            for n in range(lo, hi + 1):
+                lines.append(f"    {'>>' if n == line_no else '  '} {n:4}: {source_lines[n - 1]}")
+        except OSError:
+            pass
+    exception = next((s.strip() for s in reversed(log_lines)
+                     if re.match(r"^[A-Za-z_][A-Za-z0-9_.]*(?:Error|Exception):", s.strip())), "")
+    if exception:
+        lines.extend(["", "  Exception:", f"    {exception}"])
+    lower = log.lower()
+    if "syntaxerror" in lower:
+        advice = "Check missing parentheses, quotes, commas, or indentation at the reported line."
+    elif "nameerror" in lower:
+        advice = "A variable or API name is undefined or misspelled; check its spelling and assignment."
+    elif "attributeerror" in lower:
+        advice = "The object does not expose that property or method; verify the blentopy API."
+    elif "typeerror" in lower:
+        advice = "The call received an incompatible value or argument; check argument names and types."
+    elif "keyerror" in lower:
+        advice = "The requested key is absent; verify the available keys."
+    elif "filenotfounderror" in lower or "no such file or directory" in lower:
+        advice = "A referenced path does not exist; check the path and asset availability."
+    elif "permissionerror" in lower or "permission denied" in lower:
+        advice = "Access was denied; check folder permissions."
+    elif "out of memory" in lower or "memoryerror" in lower:
+        advice = "Reduce resolution, scene complexity, or memory-heavy assets."
+    else:
+        advice = "Review the final Blender log lines to identify whether the issue is scene setup, rendering, or an asset."
+    lines.extend(["", "  Suggested fix:", f"    - {advice}", "", "Blender log (last 12 lines):"])
+    lines.extend(f"  {s}" for s in log_lines[-12:])
+    return "\n".join(lines)
 
 
 def validate_render_settings(width: int, height: int, fps: int, duration_seconds: int) -> None:
