@@ -115,6 +115,8 @@ def _attribute_allowed(root: str, attributes: tuple[str, ...]) -> bool:
             return attributes[0] in STUDIO_METHODS or attributes[0] in {"scene", "geo", "mat"}
         if len(attributes) == 2:
             return (
+                attributes[0] == "scene" and attributes[1] in SCENE_METHODS
+            ) or (
                 attributes[0] == "geo" and attributes[1] in GEOMETRY_METHODS
             ) or (
                 attributes[0] == "mat" and attributes[1] in MATERIAL_METHODS
@@ -300,7 +302,8 @@ def validate_script(source: str) -> ast.Module:
                     allowed = (
                         method in STUDIO_METHODS
                         if len(attributes) == 1
-                        else (attributes[0] == "geo" and method in GEOMETRY_METHODS)
+                        else (attributes[0] == "scene" and method in SCENE_METHODS)
+                        or (attributes[0] == "geo" and method in GEOMETRY_METHODS)
                         or (attributes[0] == "mat" and method in MATERIAL_METHODS)
                     )
                     if not allowed:
