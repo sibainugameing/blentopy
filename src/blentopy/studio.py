@@ -64,8 +64,9 @@ class Studio:
         self.output_scene.render.fps = fps
         self.output_scene.render.fps_base = 1.0
         self._sequence_editor = self.output_scene.sequence_editor_create()
-        self._scene_strip = self._new_scene_strip()
+        # Set the content and output frame ranges before creating the scene strip.
         self.set_timeline(duration_seconds, fps)
+        self._scene_strip = self._new_scene_strip()
 
         self.set_world_color((0.025, 0.03, 0.05))
 
