@@ -149,9 +149,9 @@ for hero in scene.find(role="hero"):
 
     def test_rejects_unsupported_loop_iterables_and_dynamic_types(self):
         cases = (
-            "for item in studio.scene.mesh(geometry=studio.geo.box()):\\n    item.visible = True",
-            "for item in unknown_items:\\n    item.visible = True",
-            "for item in range(2.5):\\n    item = 1",
+            "for item in studio.scene.mesh(geometry=studio.geo.box()):\n    item.visible = True",
+            "for item in unknown_items:\n    item.visible = True",
+            "for item in range(2.5):\n    item = 1",
         )
         for source in cases:
             with self.subTest(source=source):
