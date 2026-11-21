@@ -770,7 +770,7 @@ At startup, the MCP server loads the bundled **AI_SYSTEM_PROMPT.md** resource an
 | **blentopy_edit_scene** | Applies targeted changes to an existing .blend and saves the updated project atomically. |
 | **blentopy_list_outputs** | Lists recent files in the workspace's renders directory. |
 
-The render and preview tools accept Python source code as a string. The scene language provides **studio**, **math**, and bounded **range()** loops; the MCP server validates scripts with the same restrictions as the CLI. Default output is 1080×1920 at 30 FPS for 8 seconds.
+The render and preview tools accept Python source code as a string. The scene language provides **studio**, **math**, integer-expression **range()**, and bounded list/tuple/scene.find() iteration; the MCP server validates scripts with the same restrictions as the CLI. Default output is 1080×1920 at 30 FPS for 8 seconds.
 
 ### 5. Example requests to the connected AI
 
