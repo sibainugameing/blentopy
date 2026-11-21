@@ -15,7 +15,7 @@ def main() -> int:
         if package_parent not in sys.path:
             sys.path.insert(0, package_parent)
 
-        from blentopy.studio import Studio
+        from blentopy.ai_native import AIStudio
         from blentopy.validation import validate_script
 
         script_path = Path(os.environ["BLENTOPY_SCRIPT"]).resolve(strict=True)
@@ -28,7 +28,7 @@ def main() -> int:
         duration = int(os.environ["BLENTOPY_DURATION"])
 
         tree = validate_script(script_path.read_text(encoding="utf-8"))
-        studio = Studio(
+        studio = AIStudio(
             workspace=str(workspace), output_path=str(output), blend_path=str(blend),
             width=width, height=height, fps=fps, duration_seconds=duration,
         )
