@@ -1,6 +1,7 @@
 import io
 import json
 import tempfile
+import threading
 import unittest
 from pathlib import Path
 from unittest.mock import patch
@@ -14,6 +15,8 @@ from blentopy.runner import (
     render_script,
     _stream_blender_process,
     _resolve_scene_paths,
+    _locked_paths,
+    _find_compatible_blender,
     validate_render_settings,
 )
 
@@ -53,15 +56,17 @@ class RenderSettingsTests(unittest.TestCase):
     def test_rejects_source_output_and_blend_path_collisions(self):
         with tempfile.TemporaryDirectory() as folder:
             root = Path(folder)
-            script = root / "scene.py"
+            script = root / "scene.mp4"
             script.write_text('studio.add_cube("Cube")\\n', encoding="utf-8")
             with self.assertRaisesRegex(ValueError, "File path collision"):
                 _resolve_scene_paths(
                     script, script, root / "scene.blend", root / "workspace"
                 )
+            blend_script = root / "project.blend"
+            blend_script.write_text('studio.add_cube("Cube")\\n', encoding="utf-8")
             with self.assertRaisesRegex(ValueError, "different paths"):
                 _resolve_scene_paths(
-                    script, root / "scene.mp4", script, root / "workspace"
+                    blend_script, root / "scene.mp4", blend_script, root / "workspace"
                 )
 
     def test_rejects_non_blend_project_extension(self):
@@ -104,7 +109,7 @@ class RenderProgressTests(unittest.TestCase):
                 Path(env["BLENTOPY_BLEND"]).write_bytes(b"project")
                 return _StreamingRenderProcess()
 
-            with patch("blentopy.runner.find_blender", return_value="/fake/Blender"):
+            with patch("blentopy.runner._find_compatible_blender", return_value="/fake/Blender"):
                 with patch("blentopy.runner.subprocess.Popen", side_effect=launch):
                     result = render_script(
                         script,
@@ -130,6 +135,47 @@ class RenderProgressTests(unittest.TestCase):
 
 
 class RenderProcessLifecycleTests(unittest.TestCase):
+    def test_file_lock_rejects_concurrent_writers_and_releases_cleanly(self):
+        with tempfile.TemporaryDirectory() as folder:
+            target = Path(folder) / "scene.blend"
+            with _locked_paths(target):
+                with self.assertRaisesRegex(RenderError, "already using"):
+                    with _locked_paths(target):
+                        pass
+            with _locked_paths(target):
+                pass
+
+    def test_cancel_event_terminates_running_blender(self):
+        class CancellableProcess:
+            def __init__(self):
+                self.stdout = io.StringIO("")
+                self.returncode = None
+                self.terminated = False
+
+            def poll(self):
+                return self.returncode
+
+            def terminate(self):
+                self.terminated = True
+                self.returncode = -15
+
+            def wait(self, timeout=None):
+                return self.returncode
+
+            def kill(self):
+                self.returncode = -9
+
+        process = CancellableProcess()
+        cancelled = threading.Event()
+        cancelled.set()
+        with patch("blentopy.runner.subprocess.Popen", return_value=process):
+            with self.assertRaisesRegex(RenderError, "cancelled"):
+                _stream_blender_process(
+                    ["blender"], env={}, timeout_seconds=5,
+                    progress_callback=None, cancel_event=cancelled,
+                )
+        self.assertTrue(process.terminated)
+
     def test_callback_failure_does_not_abort_render_or_leak_blender(self):
         with tempfile.TemporaryDirectory() as folder:
             root = Path(folder)
@@ -145,7 +191,7 @@ class RenderProcessLifecycleTests(unittest.TestCase):
             def broken_callback(_event):
                 raise RuntimeError("progress UI is unavailable")
 
-            with patch("blentopy.runner.find_blender", return_value="/fake/Blender"):
+            with patch("blentopy.runner._find_compatible_blender", return_value="/fake/Blender"):
                 with patch("blentopy.runner.subprocess.Popen", side_effect=launch):
                     result = render_script(
                         script,
@@ -197,7 +243,7 @@ class RenderProcessLifecycleTests(unittest.TestCase):
             output.write_bytes(b"previous video")
             blend.write_bytes(b"previous project")
 
-            with patch("blentopy.runner.find_blender", return_value="/fake/Blender"):
+            with patch("blentopy.runner._find_compatible_blender", return_value="/fake/Blender"):
                 with patch(
                     "blentopy.runner.subprocess.Popen",
                     return_value=_StreamingRenderProcess(),
@@ -223,7 +269,7 @@ class RenderProcessLifecycleTests(unittest.TestCase):
                 Path(env["BLENTOPY_BLEND"]).write_bytes(b"new project")
                 return _StreamingRenderProcess()
 
-            with patch("blentopy.runner.find_blender", return_value="/fake/Blender"):
+            with patch("blentopy.runner._find_compatible_blender", return_value="/fake/Blender"):
                 with patch("blentopy.runner.subprocess.Popen", side_effect=launch):
                     with self.assertRaisesRegex(RenderError, "MP4 output is empty"):
                         render_script(
@@ -233,6 +279,10 @@ class RenderProcessLifecycleTests(unittest.TestCase):
 
 
 class PreviewRunnerTests(unittest.TestCase):
+    def test_error_report_includes_stable_error_code(self):
+        report = format_error_report(RenderError("conflict", code="operation-conflict"))
+        self.assertIn("Error code: operation-conflict", report)
+
     def test_error_report_shows_validation_location_and_fix(self):
         error = ValueError("Unsupported chained API call: scene.foo().bar().")
         error.lineno = 12
@@ -277,7 +327,7 @@ class PreviewRunnerTests(unittest.TestCase):
                 kwargs["stdout"].flush()
                 return _RunningProcess()
 
-            with patch("blentopy.runner.find_blender", return_value="/fake/Blender"):
+            with patch("blentopy.runner._find_compatible_blender", return_value="/fake/Blender"):
                 with patch("blentopy.runner.subprocess.Popen", side_effect=launch) as popen:
                     result = preview_script(
                         script,
@@ -307,7 +357,7 @@ class PreviewRunnerTests(unittest.TestCase):
                 kwargs["stdout"].flush()
                 return _ExitedProcess()
 
-            with patch("blentopy.runner.find_blender", return_value="/fake/Blender"):
+            with patch("blentopy.runner._find_compatible_blender", return_value="/fake/Blender"):
                 with patch("blentopy.runner.subprocess.Popen", side_effect=launch):
                     with self.assertRaisesRegex(RenderError, "exited before the preview"):
                         preview_script(

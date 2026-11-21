@@ -5,6 +5,7 @@ import json
 import os
 import re
 import sys
+import threading
 from importlib.resources import files as package_files
 from datetime import datetime
 from pathlib import Path
@@ -150,8 +151,10 @@ def main() -> None:
 
             loop = asyncio.get_running_loop()
             progress_callback = _make_render_progress_callback(ctx, loop)
-            result = await asyncio.to_thread(
-                render_script,
+            cancel_event = threading.Event()
+            try:
+                result = await asyncio.to_thread(
+                    render_script,
                 script,
                 output_path=video,
                 blend_path=blend,
@@ -161,8 +164,12 @@ def main() -> None:
                 fps=fps,
                 duration_seconds=duration_seconds,
                 timeout_seconds=3600,
-                progress_callback=progress_callback,
-            )
+                    progress_callback=progress_callback,
+                    cancel_event=cancel_event,
+                )
+            except asyncio.CancelledError:
+                cancel_event.set()
+                raise
             return (
                 f"Render completed.\nVideo: {result.output_path}\n"
                 f"Blender project: {result.blend_path}\nSource script: {script}\n"

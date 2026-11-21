@@ -6,16 +6,19 @@ import json
 import os
 import queue
 import re
+import socket
 import subprocess
 import threading
 import time
 import uuid
 from collections import deque
+from contextlib import contextmanager
 from dataclasses import dataclass
+from functools import wraps
 from pathlib import Path
-from typing import Callable
+from typing import Callable, Iterable
 
-from .discovery import find_blender
+from .discovery import BlenderNotFoundError, blender_version, find_blender
 from .validation import validate_script
 
 
@@ -52,14 +55,206 @@ class SceneEditResult:
 
 
 class RenderError(RuntimeError):
-    def __init__(self, message: str, *, log: str = "") -> None:
+    def __init__(
+        self, message: str, *, log: str = "",
+        code: str = "blender-execution-failed",
+    ) -> None:
         super().__init__(message)
         self.log = log
+        self.code = code
+
+
+_MIN_BLENDER_VERSION = (4, 2, 0)
+
+
+def _find_compatible_blender(explicit: str | None = None) -> str:
+    """Resolve Blender and reject versions older than the supported VSE baseline."""
+    executable = find_blender(explicit)
+    version = blender_version(executable)
+    match = re.search(r"Blender\\s+(\\d+)\\.(\\d+)(?:\\.(\\d+))?", version)
+    if match is None:
+        raise BlenderNotFoundError(
+            f"Could not determine Blender's version from: {version!r}. "
+            "Run 'blentopy doctor' and verify the Blender executable."
+        )
+    parsed = tuple(int(part or 0) for part in match.groups())
+    if parsed < _MIN_BLENDER_VERSION:
+        required = ".".join(str(part) for part in _MIN_BLENDER_VERSION)
+        raise BlenderNotFoundError(
+            f"Blender {version} is not supported. blentopy requires Blender {required} or newer."
+        )
+    return executable
+
+
+class _OperationLock:
+    """Cross-platform exclusive lock file for one project or output path."""
+
+    def __init__(self, target: str | Path) -> None:
+        resolved = Path(target).expanduser().resolve()
+        self.target = resolved
+        self.path = resolved.with_name(f".{resolved.name}.blentopy.lock")
+        self._identity: tuple[int, int] | None = None
+        self._payload = {
+            "pid": os.getpid(),
+            "host": socket.gethostname(),
+            "target": str(resolved),
+            "created": time.time(),
+        }
+
+    def _remove_stale(self) -> bool:
+        try:
+            before = self.path.stat()
+        except FileNotFoundError:
+            return True
+        try:
+            payload = json.loads(self.path.read_text(encoding="utf-8"))
+        except (OSError, json.JSONDecodeError):
+            stale = time.time() - before.st_mtime > 3600
+        else:
+            stale = False
+            if payload.get("host") == socket.gethostname():
+                try:
+                    pid = int(payload.get("pid", 0))
+                except (TypeError, ValueError):
+                    pid = 0
+                if pid > 0:
+                    try:
+                        os.kill(pid, 0)
+                    except ProcessLookupError:
+                        stale = True
+                    except PermissionError:
+                        stale = False
+                    except OSError:
+                        stale = False
+                elif time.time() - before.st_mtime > 3600:
+                    stale = True
+        if not stale:
+            return False
+        try:
+            after = self.path.stat()
+            if (before.st_dev, before.st_ino, before.st_mtime_ns) != (
+                after.st_dev, after.st_ino, after.st_mtime_ns
+            ):
+                return False
+            self.path.unlink()
+            return True
+        except FileNotFoundError:
+            return True
+        except OSError:
+            return False
+
+    def acquire(self) -> None:
+        self.path.parent.mkdir(parents=True, exist_ok=True)
+        for _attempt in range(2):
+            try:
+                descriptor = os.open(
+                    self.path, os.O_CREAT | os.O_EXCL | os.O_WRONLY, 0o600
+                )
+            except FileExistsError:
+                if self._remove_stale():
+                    continue
+                raise RenderError(
+                    f"Another blentopy operation is already using '{self.target}'. "
+                    "Wait for that operation to finish, or inspect the lock file if the "
+                    "previous process crashed.",
+                    code="operation-conflict",
+                )
+            try:
+                payload = json.dumps(self._payload, ensure_ascii=False).encode("utf-8")
+                os.write(descriptor, payload)
+                stat = os.fstat(descriptor)
+                self._identity = (stat.st_dev, stat.st_ino)
+            finally:
+                os.close(descriptor)
+            return
+        raise RenderError(
+            f"Could not acquire an operation lock for '{self.target}'.",
+            code="operation-conflict",
+        )
+
+    def release(self) -> None:
+        if self._identity is None:
+            return
+        try:
+            stat = self.path.stat()
+            payload = json.loads(self.path.read_text(encoding="utf-8"))
+            if (
+                (stat.st_dev, stat.st_ino) == self._identity
+                and payload.get("pid") == os.getpid()
+                and payload.get("target") == str(self.target)
+            ):
+                self.path.unlink()
+        except (FileNotFoundError, OSError, json.JSONDecodeError):
+            pass
+        finally:
+            self._identity = None
+
+
+@contextmanager
+def _locked_paths(*targets: str | Path):
+    """Acquire several path locks in a stable order to avoid lock-order deadlocks."""
+    locks = [
+        _OperationLock(path)
+        for path in sorted(
+            {str(Path(item).expanduser().resolve()) for item in targets}
+        )
+    ]
+    acquired: list[_OperationLock] = []
+    try:
+        for lock in locks:
+            lock.acquire()
+            acquired.append(lock)
+        yield
+    finally:
+        for lock in reversed(acquired):
+            lock.release()
+
+
+def _serialized_targets(resolve_targets):
+    def decorate(function):
+        @wraps(function)
+        def wrapped(*args, **kwargs):
+            targets = resolve_targets(args, kwargs)
+            with _locked_paths(*targets):
+                return function(*args, **kwargs)
+        return wrapped
+    return decorate
+
+
+def _normalized_mp4_path(value: str | Path) -> Path:
+    path = Path(value).expanduser().resolve()
+    return path if path.suffix.lower() == ".mp4" else path.with_suffix(".mp4")
+
+
+def _render_targets(args, kwargs):
+    output = _normalized_mp4_path(kwargs["output_path"])
+    blend_value = kwargs.get("blend_path")
+    blend = Path(blend_value).expanduser().resolve() if blend_value else output.with_suffix(".blend")
+    return output, blend
+
+
+def _edit_targets(args, kwargs):
+    return (Path(args[1]).expanduser().resolve(),)
+
+
+def _inspect_targets(args, kwargs):
+    return (Path(args[0]).expanduser().resolve(),)
+
+
+def _preview_targets(args, kwargs):
+    output = _normalized_mp4_path(kwargs["output_path"])
+    blend_value = kwargs.get("blend_path")
+    blend = Path(blend_value).expanduser().resolve() if blend_value else output.with_suffix(".blend")
+    return output, blend
 
 
 def format_error_report(exc: Exception, *, script_path: str | Path | None = None) -> str:
     """Explain Blender failures using traceback, source context, and likely fixes."""
-    lines = [f"Error: {exc}"]
+    code = getattr(exc, "code", None) or (
+        "script-validation-failed" if type(exc).__name__ == "ScriptValidationError"
+        else "blender-execution-failed"
+    )
+    lines = [f"Error: {exc}", f"Error code: {code}"]
     log = getattr(exc, "log", "") or ""
     if not log:
         line_no = getattr(exc, "lineno", None)
@@ -239,6 +434,7 @@ def _stream_blender_process(
     env: dict[str, str],
     timeout_seconds: int,
     progress_callback: Callable[[RenderProgress], None] | None,
+    cancel_event: threading.Event | None = None,
 ) -> tuple[int, str]:
     """Run Blender with bounded log retention and a process-wide deadline.
 
@@ -297,55 +493,97 @@ def _stream_blender_process(
 
     def collect_queued_output() -> None:
         nonlocal reader_finished
+        try:
         while True:
+                try:
+                    output_line = output_queue.get_nowait()
+                except queue.Empty:
+                    break
+                if output_line is None:
+                    reader_finished = True
+                elif not output_line.lstrip().startswith(("BLENTOPY_STAGE=", "BLENTOPY_PROGRESS=")):
+                    append_log(output_line)
+    
+        while True:
+            if cancel_event is not None and cancel_event.is_set():
+                _stop_render_process(process)
+                collect_queued_output()
+                reader.join(timeout=2)
+                raise RenderError(
+                    "Blender operation was cancelled; staged files were discarded.",
+                    log="".join(log_lines).strip(),
+                    code="operation-cancelled",
+                )
+            return_code = process.poll()
+            if reader_finished and return_code is not None:
+                return return_code, "".join(log_lines).strip()
+    
+            remaining = deadline - time.monotonic()
+            if remaining <= 0:
+                _stop_render_process(process)
+                reader_deadline = time.monotonic() + 5
+                while reader.is_alive() and time.monotonic() < reader_deadline:
+                    collect_queued_output()
+                    reader.join(timeout=0.05)
+                collect_queued_output()
+                raise RenderError(
+                    f"Blender exceeded the {timeout_seconds}-second timeout.",
+                    log="".join(log_lines).strip(),
+                )
+    
             try:
-                output_line = output_queue.get_nowait()
+                output_line = output_queue.get(timeout=min(0.1, remaining))
             except queue.Empty:
-                break
+                continue
+    
             if output_line is None:
                 reader_finished = True
-            elif not output_line.lstrip().startswith(("BLENTOPY_STAGE=", "BLENTOPY_PROGRESS=")):
+                continue
+    
+            if not output_line.lstrip().startswith(("BLENTOPY_STAGE=", "BLENTOPY_PROGRESS=")):
                 append_log(output_line)
+    
+            if progress_callback is not None:
+                try:
+                    _dispatch_render_progress(output_line, progress_callback)
+                except Exception as exc:
+                    append_log(
+                        "[blentopy] Progress callback disabled after "
+                        f"{type(exc).__name__}: {exc}\\n"
+                    )
+                    progress_callback = None
+    
+    except KeyboardInterrupt:
+        _stop_render_process(process)
+        reader.join(timeout=2)
+        raise RenderError(
+            "Blender operation was cancelled by the user; staged files were discarded.",
+            log="".join(log_lines).strip(),
+            code="operation-cancelled",
+        ) from None
 
-    while True:
-        return_code = process.poll()
-        if reader_finished and return_code is not None:
-            return return_code, "".join(log_lines).strip()
 
-        remaining = deadline - time.monotonic()
-        if remaining <= 0:
-            _stop_render_process(process)
-            reader_deadline = time.monotonic() + 5
-            while reader.is_alive() and time.monotonic() < reader_deadline:
-                collect_queued_output()
-                reader.join(timeout=0.05)
-            collect_queued_output()
-            raise RenderError(
-                f"Blender exceeded the {timeout_seconds}-second timeout.",
-                log="".join(log_lines).strip(),
-            )
-
-        try:
-            output_line = output_queue.get(timeout=min(0.1, remaining))
-        except queue.Empty:
-            continue
-
-        if output_line is None:
-            reader_finished = True
-            continue
-
-        if not output_line.lstrip().startswith(("BLENTOPY_STAGE=", "BLENTOPY_PROGRESS=")):
-            append_log(output_line)
-
-        if progress_callback is not None:
+def _scene_report_from_log(log: str) -> dict[str, object]:
+    prefix = "BLENTOPY_SCENE_REPORT="
+    for line in log.splitlines():
+        if line.startswith(prefix):
             try:
-                _dispatch_render_progress(output_line, progress_callback)
-            except Exception as exc:
-                append_log(
-                    "[blentopy] Progress callback disabled after "
-                    f"{type(exc).__name__}: {exc}\\n"
+                report = json.loads(line[len(prefix):])
+            except json.JSONDecodeError as exc:
+                raise RenderError(
+                    f"Blender returned an invalid scene validation report: {exc}",
+                    log=log, code="scene-validation-report-invalid",
+                ) from exc
+            if not isinstance(report, dict) or not isinstance(report.get("ok"), bool):
+                raise RenderError(
+                    "Blender returned a scene validation report with an unexpected shape.",
+                    log=log, code="scene-validation-report-invalid",
                 )
-                progress_callback = None
+            return report
+    raise RenderError(
+        "Blender finished without returning a scene validation report.",
+        log=log, code="scene-validation-report-missing",
+    )
 
 
 def _scene_snapshot_from_log(log: str) -> dict[str, object]:
@@ -389,6 +627,7 @@ def _existing_project_environment(
     return env
 
 
+@_serialized_targets(_inspect_targets)
 def inspect_scene(
     blend_path: str | Path,
     *,
@@ -404,13 +643,16 @@ def inspect_scene(
         raise ValueError(f"blend_path must point to an existing .blend file: {project}")
     workspace_dir = Path(workspace or project.parent).expanduser().resolve()
     workspace_dir.mkdir(parents=True, exist_ok=True)
-    executable = find_blender(blender)
+    executable = _find_compatible_blender(blender)
     worker = Path(__file__).with_name("edit_worker.py").resolve()
     if not worker.is_file():
         raise RenderError("The installed blentopy package is missing edit_worker.py. Reinstall blentopy.")
 
     env = _existing_project_environment(project, project, workspace_dir, mode="inspect")
-    command = [executable, "--background", "--python-exit-code", "1", "--python", str(worker)]
+    command = [
+        executable, "--background", "--disable-autoexec",
+        "--python-exit-code", "1", "--python", str(worker),
+    ]
     return_code, log = _stream_blender_process(
         command, env=env, timeout_seconds=timeout_seconds, progress_callback=None,
     )
@@ -419,6 +661,7 @@ def inspect_scene(
     return _scene_snapshot_from_log(log)
 
 
+@_serialized_targets(_edit_targets)
 def edit_scene_script(
     script_path: str | Path,
     blend_path: str | Path,
@@ -442,7 +685,7 @@ def edit_scene_script(
         raise ValueError("The edit script and target .blend project must be different files.")
     workspace_dir = Path(workspace or source.parent).expanduser().resolve()
     workspace_dir.mkdir(parents=True, exist_ok=True)
-    executable = find_blender(blender)
+    executable = _find_compatible_blender(blender)
     worker = Path(__file__).with_name("edit_worker.py").resolve()
     if not worker.is_file():
         raise RenderError("The installed blentopy package is missing edit_worker.py. Reinstall blentopy.")
@@ -450,7 +693,10 @@ def edit_scene_script(
     token = uuid.uuid4().hex
     staged_blend = project.with_name(f".{project.stem}.{token}.edited.blend")
     env = _existing_project_environment(project, staged_blend, workspace_dir, mode="edit", script=source)
-    command = [executable, "--background", "--python-exit-code", "1", "--python", str(worker)]
+    command = [
+        executable, "--background", "--disable-autoexec",
+        "--python-exit-code", "1", "--python", str(worker),
+    ]
     try:
         return_code, log = _stream_blender_process(
             command, env=env, timeout_seconds=timeout_seconds, progress_callback=None,
@@ -458,6 +704,14 @@ def edit_scene_script(
         if return_code != 0:
             raise RenderError(f"Blender scene edit failed with exit code {return_code}.", log=log)
         snapshot = _scene_snapshot_from_log(log)
+        report = _scene_report_from_log(log)
+        if not report.get("ok", False):
+            raise RenderError(
+                "Blender rejected the edited scene during post-save validation: "
+                + "; ".join(str(item) for item in report.get("errors", [])),
+                log=log,
+                code="scene-validation-failed",
+            )
         if not staged_blend.is_file() or staged_blend.stat().st_size == 0:
             raise RenderError(f"Blender did not create a valid edited project: {staged_blend}", log=log)
         os.replace(staged_blend, project)
@@ -466,12 +720,14 @@ def edit_scene_script(
         staged_blend.unlink(missing_ok=True)
 
 
+@_serialized_targets(_render_targets)
 def render_script(
     script_path: str | Path, *, output_path: str | Path,
     blend_path: str | Path | None = None, workspace: str | Path | None = None,
     blender: str | None = None, width: int = 1080, height: int = 1920,
     fps: int = 30, duration_seconds: int = 8, timeout_seconds: int = 3_600,
     progress_callback: Callable[[RenderProgress], None] | None = None,
+    cancel_event: threading.Event | None = None,
 ) -> RenderResult:
     validate_render_settings(width, height, fps, duration_seconds)
     if not isinstance(timeout_seconds, int) or timeout_seconds < 1:
@@ -483,10 +739,10 @@ def render_script(
     if output == blend:
         raise ValueError("The MP4 output path and .blend project path must be different.")
 
-    executable = find_blender(blender)
+    executable = _find_compatible_blender(blender)
     worker = Path(__file__).with_name("worker.py").resolve()
     command = [
-        executable, "--background", "--factory-startup",
+        executable, "--background", "--factory-startup", "--disable-autoexec",
         "--python-exit-code", "1", "--python", str(worker),
     ]
 
@@ -505,6 +761,7 @@ def render_script(
             env=env,
             timeout_seconds=timeout_seconds,
             progress_callback=progress_callback,
+            cancel_event=cancel_event,
         )
         if return_code != 0:
             raise RenderError(f"Blender failed with exit code {return_code}.", log=log)
@@ -547,6 +804,7 @@ def _stop_preview_process(process: subprocess.Popen[str]) -> None:
         pass
 
 
+@_serialized_targets(_preview_targets)
 def preview_script(
     script_path: str | Path, *, output_path: str | Path,
     blend_path: str | Path | None = None, workspace: str | Path | None = None,
@@ -562,7 +820,7 @@ def preview_script(
     source, output, blend, workspace_dir = _resolve_scene_paths(
         script_path, output_path, blend_path, workspace
     )
-    executable = find_blender(blender)
+    executable = _find_compatible_blender(blender)
     worker = Path(__file__).with_name("preview_worker.py").resolve()
     if not worker.is_file():
         raise RenderError(
@@ -579,8 +837,8 @@ def preview_script(
     )
     env["BLENTOPY_PREVIEW_STATUS"] = str(status_path)
     command = [
-        executable, "--factory-startup", "--python-exit-code", "1",
-        "--python", str(worker),
+        executable, "--factory-startup", "--disable-autoexec",
+        "--python-exit-code", "1", "--python", str(worker),
     ]
 
     try:
