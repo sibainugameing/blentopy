@@ -1806,10 +1806,13 @@ class MotionTrack:
             for curve in curves:
                 if curve.data_path == self._data_path:
                     for point in curve.keyframe_points:
-                        point.interpolation = interpolation[ease]
-                        if ease == "smooth":
-                            point.handle_left_type = "AUTO_CLAMPED"
-                            point.handle_right_type = "AUTO_CLAMPED"
+                        # Interpolation belongs to the outgoing segment of this
+                        # keyframe. Do not overwrite the other keys' easing modes.
+                        if abs(float(point.co.x) - frame) < 1e-4:
+                            point.interpolation = interpolation[ease]
+                            if ease == "smooth":
+                                point.handle_left_type = "AUTO_CLAMPED"
+                                point.handle_right_type = "AUTO_CLAMPED"
 
 
 class AIStudio:

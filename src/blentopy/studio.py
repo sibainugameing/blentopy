@@ -758,7 +758,7 @@ class Studio:
             raise RuntimeError("This Blender version has no supported VSE sound API.")
         strip = collection.new_sound(
             name=name, filepath=str(resolved), channel=channel,
-            frame_start=self.scene.frame_start + round(start_seconds * self._fps),
+            frame_start=self.output_scene.frame_start + round(start_seconds * self._fps),
         )
         strip.volume = volume
         self._audio_strips[name] = strip

@@ -181,6 +181,35 @@ class RigAndSimulationValidationTests(unittest.TestCase):
                 SceneAPI._material(scene, material, "test.material")
             outside.unlink()
 
+
+class MotionInterpolationTests(unittest.TestCase):
+    def test_easing_only_changes_the_keyframe_that_was_just_inserted(self):
+        from types import SimpleNamespace
+        from blentopy.ai_native import MotionTrack
+
+        points = [
+            SimpleNamespace(co=SimpleNamespace(x=1.0), interpolation="LINEAR",
+                            handle_left_type="FREE", handle_right_type="FREE"),
+            SimpleNamespace(co=SimpleNamespace(x=11.0), interpolation="LINEAR",
+                            handle_left_type="FREE", handle_right_type="FREE"),
+        ]
+        curve = SimpleNamespace(data_path="location", keyframe_points=points)
+        target_object = SimpleNamespace(
+            animation_data=SimpleNamespace(action=SimpleNamespace(fcurves=[curve])),
+            keyframe_insert=lambda **_kwargs: None,
+        )
+        backend_scene = SimpleNamespace(frame_start=1, frame_end=20)
+        scene = SimpleNamespace(
+            _duration=2.0, _fps=10,
+            _backend=SimpleNamespace(scene=backend_scene),
+        )
+        target = SimpleNamespace(_object=target_object)
+        track = MotionTrack(scene, target, "location")
+        track.key(at=0, value=(0, 0, 0), ease="smooth")
+        self.assertEqual(points[0].interpolation, "BEZIER")
+        self.assertEqual(points[0].handle_left_type, "AUTO_CLAMPED")
+        self.assertEqual(points[1].interpolation, "LINEAR")
+
 class SceneRenderValidationTests(unittest.TestCase):
     @staticmethod
     def make_scene(camera, *, width=1080, height=1920):

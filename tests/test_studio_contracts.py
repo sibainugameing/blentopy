@@ -95,6 +95,26 @@ class StudioInputValidationTests(unittest.TestCase):
             with self.assertRaisesRegex(ValueError, "inside the blentopy workspace"):
                 Studio.add_audio(studio, "music", str(sound_file))
 
+    def test_audio_start_uses_output_scene_frame_start(self):
+        with tempfile.TemporaryDirectory() as folder:
+            root = Path(folder)
+            sound_file = root / "music.wav"
+            sound_file.write_bytes(b"placeholder")
+            new_sound = Mock(return_value=SimpleNamespace())
+            studio = SimpleNamespace(
+                _workspace=root,
+                _audio_strips={},
+                _duration=8.0,
+                _fps=24,
+                _finite_scalar=Studio._finite_scalar,
+                _clamp=Studio._clamp,
+                scene=SimpleNamespace(frame_start=1),
+                output_scene=SimpleNamespace(frame_start=100),
+                _sequence_editor=SimpleNamespace(strips=SimpleNamespace(new_sound=new_sound)),
+            )
+            Studio.add_audio(studio, "music", str(sound_file), start_seconds=1)
+            self.assertEqual(new_sound.call_args.kwargs["frame_start"], 124)
+
     def test_fade_audio_rejects_frames_outside_the_output_timeline(self):
         strip = SimpleNamespace(keyframe_insert=Mock())
         studio = SimpleNamespace(
