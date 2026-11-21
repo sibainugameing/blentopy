@@ -9,7 +9,7 @@ from datetime import datetime
 from pathlib import Path
 
 from .discovery import BlenderNotFoundError, blender_version, find_blender
-from .runner import RenderError, preview_script, render_script, validate_render_settings
+from .runner import RenderError, format_error_report, preview_script, render_script, validate_render_settings
 from .validation import ScriptValidationError, validate_script
 
 
@@ -86,6 +86,7 @@ def main() -> None:
         and unbounded loops are rejected. Bounded conditionals and nested range loops
         are supported under the validator budgets.
         """
+        script: Path | None = None
         try:
             validate_script(python_code)
             validate_render_settings(width, height, fps, duration_seconds)
@@ -111,8 +112,7 @@ def main() -> None:
                 f"Log:\n{result.log[-6000:]}"
             )
         except (ScriptValidationError, ValueError, OSError, BlenderNotFoundError, RenderError) as exc:
-            detail = getattr(exc, "log", "")
-            return f"Render failed: {exc}" + (f"\nBlender log:\n{detail[-8000:]}" if detail else "")
+            return "Render failed:\n" + format_error_report(exc, script_path=script)
 
     @server.tool()
     def blentopy_preview_scene(
@@ -126,6 +126,7 @@ def main() -> None:
         The legacy Studio API remains supported. Use this when the user wants to
         inspect or edit the scene in Blender; Blender remains open after saving.
         """
+        script: Path | None = None
         try:
             validate_script(python_code)
             validate_render_settings(width, height, fps, duration_seconds)
@@ -152,8 +153,7 @@ def main() -> None:
                 "No MP4 render was started. Blender remains open for inspection and editing."
             )
         except (ScriptValidationError, ValueError, OSError, BlenderNotFoundError, RenderError) as exc:
-            detail = getattr(exc, "log", "")
-            return f"Preview failed: {exc}" + (f"\nBlender log:\n{detail[-8000:]}" if detail else "")
+            return "Preview failed:\n" + format_error_report(exc, script_path=script)
 
     @server.tool()
     def blentopy_list_outputs() -> str:
