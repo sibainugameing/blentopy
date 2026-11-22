@@ -484,7 +484,7 @@ scene.configure_render(engine="eevee", samples=64)
 scene.post_process(bloom=0.2, exposure=0.1)
 ~~~
 
-All file import/export and HDR/EXR paths must resolve inside BLENTOPY_WORKSPACE. Existing export destinations are never overwritten. Some importer/exporter operators depend on the Blender version and available bundled extensions. The complete method signatures, limits, and examples are in docs/AI_SYSTEM_PROMPT.md.
+All file import/export and HDR/EXR paths must resolve inside BLENTOPY_WORKSPACE. Existing export destinations are never overwritten. Some importer/exporter operators depend on the Blender version and available bundled extensions. The complete method signatures, limits, and examples are in docs/AI_API_REFERENCE.md.
 
 ## Legacy Studio API reference
 
