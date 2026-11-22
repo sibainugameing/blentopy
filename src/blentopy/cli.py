@@ -4,11 +4,14 @@ from __future__ import annotations
 
 import argparse
 import importlib.util
+import json
+import re
 import sys
 from pathlib import Path
 
 from . import __version__
 from .discovery import BlenderNotFoundError, blender_version, find_blender
+from .templates import TEMPLATES
 from .validation import ScriptValidationError, validate_script
 from .runner import (
     RenderError,
@@ -19,6 +22,15 @@ from .runner import (
 )
 
 DEFAULT_EXAMPLE = Path(__file__).with_name("demo_scene.py")
+
+
+MIN_BLENDER_LABEL = "4.2"
+
+
+def _version_supported(version: str) -> bool:
+    """True when the reported Blender version meets the runner's minimum."""
+    match = re.search(r"(\d+)\.(\d+)", version)
+    return bool(match) and (int(match[1]), int(match[2])) >= (4, 2)
 
 
 def _positive_int(value: str) -> int:
@@ -52,13 +64,26 @@ def build_parser() -> argparse.ArgumentParser:
         "--version", action="version", version=f"%(prog)s {__version__}"
     )
     sub = parser.add_subparsers(dest="command", required=True)
+    new = sub.add_parser("new", help="Create a starter scene script.")
+    new.add_argument("name", nargs="?", help="Script name or path (.py is added if missing).")
+    new.add_argument(
+        "--template", choices=sorted(TEMPLATES), default="minimal",
+        help="Starter template (default: minimal).",
+    )
+    new.add_argument("--force", action="store_true", help="Overwrite an existing file.")
+    new.add_argument("--list", action="store_true", help="List templates and exit.")
     check = sub.add_parser(
         "check",
         help="Check scene script syntax without launching Blender (use '-' for stdin).",
     )
     check.add_argument("script", help="Path to a scene script, or '-' to read stdin.")
+    check.add_argument(
+        "--json", action="store_true",
+        help="Print the result as JSON (handy for AI tools and editors).",
+    )
     doctor = sub.add_parser("doctor", help="Check the Blender environment.")
     doctor.add_argument("--blender", help="Path to Blender executable.")
+    doctor.add_argument("--json", action="store_true", help="Print the result as JSON.")
     demo = sub.add_parser("demo", help="Render the built-in demo scene.")
     add_render_options(demo)
     render = sub.add_parser("render", help="Render a Python scene script.")
@@ -96,11 +121,21 @@ def _check(args: argparse.Namespace) -> int:
             else Path(args.script).read_text(encoding="utf-8")
         )
     except (OSError, UnicodeDecodeError) as exc:
-        print(f"Cannot read {label}: {exc}", file=sys.stderr)
+        if args.json:
+            print(json.dumps({"ok": False, "file": label, "error": f"Cannot read: {exc}"}))
+        else:
+            print(f"Cannot read {label}: {exc}", file=sys.stderr)
         return 1
     try:
         validate_script(source)
     except ScriptValidationError as exc:
+        if args.json:
+            print(json.dumps({
+                "ok": False, "file": label, "error": str(exc), "code": exc.code,
+                "line": exc.lineno, "column": exc.col_offset,
+                "source_line": exc.source_line, "suggestion": exc.suggestion,
+            }, ensure_ascii=False))
+            return 1
         where = f":{exc.lineno}" if exc.lineno else ""
         print(f"{label}{where}: {exc}", file=sys.stderr)
         if exc.source_line is not None:
@@ -110,7 +145,37 @@ def _check(args: argparse.Namespace) -> int:
         if exc.suggestion:
             print(f"Hint: {exc.suggestion}", file=sys.stderr)
         return 1
+    if args.json:
+        print(json.dumps({"ok": True, "file": label}))
+        return 0
     print(f"{label}: syntax OK (Blender-side errors are only found when the scene runs).")
+    return 0
+
+
+def _new(args: argparse.Namespace) -> int:
+    """Write a starter scene script so new users never face a blank file."""
+    if args.list:
+        for name in sorted(TEMPLATES):
+            first = TEMPLATES[name].splitlines()[0].strip('"')
+            print(f"{name:10s} {first}")
+        return 0
+    if not args.name:
+        print("Give a script name, e.g. 'blentopy new my_scene'.", file=sys.stderr)
+        return 2
+    target = Path(args.name)
+    if target.suffix != ".py":
+        target = target.with_suffix(".py") if not target.suffix else Path(f"{target}.py")
+    if target.exists() and not args.force:
+        print(f"{target} already exists. Use --force to overwrite.", file=sys.stderr)
+        return 1
+    try:
+        target.parent.mkdir(parents=True, exist_ok=True)
+        target.write_text(TEMPLATES[args.template], encoding="utf-8")
+    except OSError as exc:
+        print(f"Cannot write {target}: {exc}", file=sys.stderr)
+        return 1
+    print(f"Created {target} ({args.template} template).")
+    print(f"Next: blentopy check {target}  |  blentopy preview {target}  |  blentopy render {target}")
     return 0
 
 
@@ -179,6 +244,39 @@ def _preview(args: argparse.Namespace) -> int:
     return 0
 
 
+def _doctor(args: argparse.Namespace) -> int:
+    mcp_installed = importlib.util.find_spec("mcp") is not None
+    try:
+        executable = find_blender(args.blender)
+        version = blender_version(executable)
+    except BlenderNotFoundError as exc:
+        if args.json:
+            print(json.dumps({"ok": False, "error": str(exc), "mcp_installed": mcp_installed}))
+        else:
+            print(f"Blender: NOT FOUND\n{exc}", file=sys.stderr)
+        return 1
+    supported = _version_supported(version)
+    if args.json:
+        print(json.dumps({
+            "ok": supported, "blender_version": version, "executable": executable,
+            "minimum_version": MIN_BLENDER_LABEL, "mcp_installed": mcp_installed,
+            "blentopy_version": __version__,
+        }))
+        return 0 if supported else 1
+    print(f"Blender: {version}\nExecutable: {executable}")
+    print(f"blentopy: {__version__}")
+    print(f"CLI module: {Path(__file__).resolve()}")
+    print(f"MCP SDK: {'installed' if mcp_installed else 'not installed (optional)'}")
+    if not supported:
+        print(
+            f"WARNING: Blender {version} is older than the required {MIN_BLENDER_LABEL}; "
+            "render and preview will refuse to run.",
+            file=sys.stderr,
+        )
+        return 1
+    return 0
+
+
 def main(argv: list[str] | None = None) -> int:
     args = build_parser().parse_args(argv)
     if args.command == "gui":
@@ -187,17 +285,10 @@ def main(argv: list[str] | None = None) -> int:
         return gui_main()
     if args.command == "check":
         return _check(args)
+    if args.command == "new":
+        return _new(args)
     if args.command == "doctor":
-        try:
-            executable = find_blender(args.blender)
-            version = blender_version(executable)
-        except BlenderNotFoundError as exc:
-            print(f"Blender: NOT FOUND\n{exc}", file=sys.stderr)
-            return 1
-        print(f"Blender: {version}\nExecutable: {executable}")
-        print(f"CLI module: {Path(__file__).resolve()}")
-        print(f"MCP SDK: {'installed' if importlib.util.find_spec('mcp') else 'not installed (optional)'}")
-        return 0
+        return _doctor(args)
     if args.command == "demo":
         if not DEFAULT_EXAMPLE.is_file():
             print(f"Demo script not found: {DEFAULT_EXAMPLE}", file=sys.stderr)
