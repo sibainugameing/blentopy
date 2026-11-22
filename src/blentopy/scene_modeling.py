@@ -6,7 +6,7 @@ import math
 from typing import Sequence
 
 from .resource_limits import estimate_object_polygons, modifier_polygon_delta
-from .scene_types import _identifier, _vector3
+from .scene_types import MaterialSpec, Object3D, _identifier, _vector3
 
 class SceneModelingMixin:
     """Create and edit scene geometry without changing the public SceneAPI."""
