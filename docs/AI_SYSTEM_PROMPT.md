@@ -55,9 +55,13 @@ scene.light(id="light.key", target=hero, position=(-4, -5, 6), energy=1500)
 rise = scene.motion(hero).track("position")
 rise.key(at=0, value=(0, 0, 0.8))
 rise.key(at=2, value=(0, 0, 2.4), ease="smooth")
+
+title = scene.text(id="title.main", body="START", size=1.5, extrude=0.04)
+scene.update_text(title, body="READY", character_spacing=1.1, align="center")
+scene.motion(title).track("position").key(at=1, value=(0, 0, 2))
 ```
 
-**Scene methods:** `configure`, `mesh`, `surface`, `group`, `add`, `update`, `set_material`, `remove`, `attach`, `place`, `look_at`, `frame`, `align`, `camera`, `light`, `curve`, `text`, `duplicate`, `instance`, `set_dimensions`, `bevel`, `subdivide`, `solidify`, `mirror`, `array`, `boolean`, `shade_smooth`, `armature`, `bind_armature`, `rigid_body`, `motion`, `find`, `inspect`, and `validate`.
+**Scene methods:** `configure`, `mesh`, `surface`, `group`, `add`, `update`, `set_material`, `remove`, `attach`, `place`, `look_at`, `frame`, `align`, `camera`, `light`, `curve`, `text`, `update_text`, `duplicate`, `instance`, `set_dimensions`, `bevel`, `subdivide`, `solidify`, `mirror`, `array`, `boolean`, `shade_smooth`, `armature`, `bind_armature`, `rigid_body`, `motion`, `find`, `inspect`, and `validate`.
 
 **Geometry factory:** `studio.geo.box`, `rounded_box`, `sphere`, `plane`, `cylinder`, `cone`, `torus`, `ico_sphere`, `circle`, `ring`, `capsule`, `torus_knot`, and `mesh`.
 

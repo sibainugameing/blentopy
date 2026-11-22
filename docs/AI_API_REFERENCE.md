@@ -477,7 +477,8 @@ Use these operations when primitives alone cannot produce a recognizable shape. 
 ### Curves and text
 
 - `scene.curve(id=None, points=(), material=None, bevel_depth=0.025, cyclic=False, spline="poly", resolution=12, role=None)`: create a 3D polyline or auto-handle Bezier curve. Supply 2–4096 XYZ points. Use for cables, pipes, trim, wires, outlines, and organic paths. `spline` is `"poly"` or `"bezier"`.
-- `scene.text(id=None, body="Text", size=1, extrude=0, align="center", material=None, position=(0,0,0), rotation=(0,0,0), role=None)`: create editable 3D text. Rotation uses radians. Alignment is `left`, `center`, or `right`.
+- `scene.text(id=None, body="Text", size=1, extrude=0, align="center", material=None, position=(0,0,0), rotation=(0,0,0), role=None, font_path=None, bevel_depth=0, align_y="top_baseline", character_spacing=1, word_spacing=1, line_spacing=1)`: create editable Blender text. Rotation uses radians. Horizontal alignment accepts `left`, `center`, `right`, `justify`, or `flush`; vertical alignment accepts `top`, `top_baseline`, `center`, `bottom_baseline`, or `bottom`. Optional font files must be TTF/OTF files inside the blentopy workspace (maximum 32 MiB).
+- `scene.update_text(target, body=None, font_path=None, size=None, extrude=None, bevel_depth=None, align=None, align_y=None, character_spacing=None, word_spacing=None, line_spacing=None)`: update the content and typography of an existing text object. Omitted or `None` values remain unchanged; use `body=""` to clear the text. Returns the same `Object3D` handle.
 
 ### Object editing and geometry operations
 
@@ -490,6 +491,38 @@ Use these operations when primitives alone cannot produce a recognizable shape. 
 - `scene.array(target, count=2, offset=(1,0,0))`: add an Array modifier with a constant local offset.
 - `scene.boolean(target, operand, operation="DIFFERENCE")`: add a non-destructive Boolean modifier. Operations: `DIFFERENCE`, `UNION`, `INTERSECT`.
 - `scene.shade_smooth(target)`: enable smooth shading for mesh polygons.
+
+Example: create and restyle text without replacing the object handle:
+
+~~~python
+scene = studio.scene
+mat = studio.mat
+
+title = scene.text(
+    id="title.main",
+    body="BLENTOPY",
+    size=1.8,
+    extrude=0.06,
+    bevel_depth=0.015,
+    align="center",
+    material=mat.emissive(color="#38BFFF", strength=1.8),
+    role="hero",
+)
+scene.update_text(
+    title,
+    body="BLENTOPY STUDIO",
+    size=1.5,
+    character_spacing=1.12,
+    line_spacing=1.1,
+)
+title.position.set((0, 0, 1.5))
+rise = scene.motion(title).track("position")
+rise.key(at=0, value=(0, 0, 0.5))
+rise.key(at=1.5, value=(0, 0, 1.5), ease="smooth")
+~~~
+
+Text objects remain ordinary `Object3D` handles. Use `scene.update()` for transforms and visibility, `scene.set_material()` for materials, `scene.motion()` for object animation, and `scene.update_text()` only for text content and typography.
+
 
 Modifiers remain editable in Blender. Prefer small, deliberate modifier stacks. For Boolean cuts, keep the cutter object identifiable; hide it only after checking that the result is correct.
 

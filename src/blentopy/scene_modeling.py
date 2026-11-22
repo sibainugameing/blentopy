@@ -60,6 +60,97 @@ class SceneModelingMixin:
         data.materials.append(self._material(material, object_id))
         return self._register(object_id, object_ref, "curve", role)
 
+    @staticmethod
+    def _text_scalar(
+        value: float,
+        label: str,
+        minimum: float,
+        maximum: float,
+    ) -> float:
+        if (
+            type(value) not in {int, float}
+            or not math.isfinite(value)
+            or not minimum <= value <= maximum
+        ):
+            raise ValueError(
+                f"{label} must be a finite number between {minimum:g} and {maximum:g}."
+            )
+        return float(value)
+
+    @staticmethod
+    def _text_align_x(value: str) -> str:
+        alignments = {
+            "left": "LEFT",
+            "center": "CENTER",
+            "right": "RIGHT",
+            "justify": "JUSTIFY",
+            "flush": "FLUSH",
+        }
+        if not isinstance(value, str) or value.strip().lower() not in alignments:
+            raise ValueError(
+                "align must be left, center, right, justify, or flush."
+            )
+        return alignments[value.strip().lower()]
+
+    @staticmethod
+    def _text_align_y(value: str) -> str:
+        alignments = {
+            "top": "TOP",
+            "top_baseline": "TOP_BASELINE",
+            "center": "CENTER",
+            "bottom_baseline": "BOTTOM_BASELINE",
+            "bottom": "BOTTOM",
+        }
+        if not isinstance(value, str) or value.strip().lower() not in alignments:
+            raise ValueError(
+                "align_y must be top, top_baseline, center, bottom_baseline, or bottom."
+            )
+        return alignments[value.strip().lower()]
+
+    @classmethod
+    def _text_style(
+        cls,
+        *,
+        size: float = 1,
+        extrude: float = 0,
+        bevel_depth: float = 0,
+        align: str = "center",
+        align_y: str = "top_baseline",
+        character_spacing: float = 1,
+        word_spacing: float = 1,
+        line_spacing: float = 1,
+    ) -> dict[str, object]:
+        return {
+            "size": cls._text_scalar(size, "Text size", 0.0001, 10000),
+            "extrude": cls._text_scalar(extrude, "Text extrude", 0, 100),
+            "bevel_depth": cls._text_scalar(bevel_depth, "Text bevel_depth", 0, 100),
+            "align_x": cls._text_align_x(align),
+            "align_y": cls._text_align_y(align_y),
+            "space_character": cls._text_scalar(
+                character_spacing, "character_spacing", 0, 10
+            ),
+            "space_word": cls._text_scalar(word_spacing, "word_spacing", 0, 10),
+            "space_line": cls._text_scalar(line_spacing, "line_spacing", 0, 10),
+        }
+
+    def _load_text_font(self, font_path: str | None):
+        if font_path is None:
+            return None
+        path = self._workspace_path(
+            font_path,
+            must_exist=True,
+            allowed_suffixes={".ttf", ".otf"},
+            label="Font",
+        )
+        if path.stat().st_size > 32 * 1024 * 1024:
+            raise ValueError("Font files must not exceed 32 MiB.")
+        try:
+            return self._backend._bpy.data.fonts.load(
+                str(path), check_existing=True
+            )
+        except (OSError, RuntimeError) as exc:
+            raise ValueError(f"Could not load font file: {path.name}") from exc
+
     def text(
         self,
         id: str | None = None,
@@ -71,33 +162,111 @@ class SceneModelingMixin:
         position: Sequence[float] = (0, 0, 0),
         rotation: Sequence[float] = (0, 0, 0),
         role: str | None = None,
+        font_path: str | None = None,
+        bevel_depth: float = 0,
+        align_y: str = "top_baseline",
+        character_spacing: float = 1,
+        word_spacing: float = 1,
+        line_spacing: float = 1,
     ) -> Object3D:
-        """Create editable Blender text geometry."""
+        """Create editable Blender text with optional typography settings."""
         if not isinstance(body, str) or len(body) > 4096:
             raise ValueError("Text body must be a string of at most 4096 characters.")
-        if not math.isfinite(size) or size <= 0:
-            raise ValueError("Text size must be finite and greater than zero.")
-        if not math.isfinite(extrude) or extrude < 0:
-            raise ValueError("Text extrusion must be finite and non-negative.")
-        alignments = {"left": "LEFT", "center": "CENTER", "right": "RIGHT"}
-        if align not in alignments:
-            raise ValueError("align must be left, center, or right.")
+        style = self._text_style(
+            size=size,
+            extrude=extrude,
+            bevel_depth=bevel_depth,
+            align=align,
+            align_y=align_y,
+            character_spacing=character_spacing,
+            word_spacing=word_spacing,
+            line_spacing=line_spacing,
+        )
+        font = self._load_text_font(font_path)
         object_id = self._allocate_id("text") if id is None else _identifier(id)
         if object_id in self._objects:
             raise ValueError(f"Duplicate scene object id: {object_id}")
+        object_position = _vector3(position, "position")
+        object_rotation = _vector3(rotation, "rotation")
         self._ensure_capacity(objects=1)
+
         bpy = self._backend._bpy
         data = bpy.data.curves.new(f"{object_id} Data", type="FONT")
         data.body = body
-        data.size = float(size)
-        data.extrude = float(extrude)
-        data.align_x = alignments[align]
+        for property_name, value in style.items():
+            setattr(data, property_name, value)
+        if font is not None:
+            data.font = font
+
         object_ref = bpy.data.objects.new(object_id, data)
         self._backend.scene.collection.objects.link(object_ref)
-        object_ref.location = _vector3(position, "position")
-        object_ref.rotation_euler = _vector3(rotation, "rotation")
+        object_ref.location = object_position
+        object_ref.rotation_euler = object_rotation
         data.materials.append(self._material(material, object_id))
         return self._register(object_id, object_ref, "text", role)
+
+    def update_text(
+        self,
+        target: Object3D | str,
+        *,
+        body: str | None = None,
+        font_path: str | None = None,
+        size: float | None = None,
+        extrude: float | None = None,
+        bevel_depth: float | None = None,
+        align: str | None = None,
+        align_y: str | None = None,
+        character_spacing: float | None = None,
+        word_spacing: float | None = None,
+        line_spacing: float | None = None,
+    ) -> Object3D:
+        """Edit text content and typography without replacing its Object3D handle."""
+        obj = self._resolve(target)
+        if obj.kind != "text":
+            raise ValueError("update_text() only supports text objects created or adopted by blentopy.")
+
+        data = obj._object.data
+        changes: dict[str, object] = {}
+        if body is not None:
+            if not isinstance(body, str) or len(body) > 4096:
+                raise ValueError("Text body must be a string of at most 4096 characters.")
+            changes["body"] = body
+        if size is not None:
+            changes["size"] = self._text_scalar(size, "Text size", 0.0001, 10000)
+        if extrude is not None:
+            changes["extrude"] = self._text_scalar(extrude, "Text extrude", 0, 100)
+        if bevel_depth is not None:
+            changes["bevel_depth"] = self._text_scalar(bevel_depth, "Text bevel_depth", 0, 100)
+        if align is not None:
+            changes["align_x"] = self._text_align_x(align)
+        if align_y is not None:
+            changes["align_y"] = self._text_align_y(align_y)
+        if character_spacing is not None:
+            changes["space_character"] = self._text_scalar(
+                character_spacing, "character_spacing", 0, 10
+            )
+        if word_spacing is not None:
+            changes["space_word"] = self._text_scalar(word_spacing, "word_spacing", 0, 10)
+        if line_spacing is not None:
+            changes["space_line"] = self._text_scalar(line_spacing, "line_spacing", 0, 10)
+        font = self._load_text_font(font_path)
+        if font is not None:
+            changes["font"] = font
+
+        previous = {name: getattr(data, name) for name in changes}
+        try:
+            for name, value in changes.items():
+                setattr(data, name, value)
+        except Exception as exc:
+            for name, value in previous.items():
+                try:
+                    setattr(data, name, value)
+                except Exception:
+                    pass
+            raise RuntimeError(
+                f"Failed to update text object '{obj.id}'; restoration of previous settings was attempted."
+            ) from exc
+        return obj
 
     def duplicate(
         self,
