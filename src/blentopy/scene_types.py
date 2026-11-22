@@ -5,7 +5,12 @@ from __future__ import annotations
 import math
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any, Sequence
+from typing import TYPE_CHECKING, Any, Sequence
+
+if TYPE_CHECKING:
+    from .ai_native import SceneAPI
+else:
+    SceneAPI = Any
 
 def _vector3(value: Sequence[float], label: str) -> tuple[float, float, float]:
     if isinstance(value, (str, bytes)):
