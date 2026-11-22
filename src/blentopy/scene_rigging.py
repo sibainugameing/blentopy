@@ -5,7 +5,7 @@ from __future__ import annotations
 import math
 from typing import Any, Sequence
 
-from .scene_types import _identifier, _normalize_bone_definitions
+from .scene_types import Object3D, _identifier, _normalize_bone_definitions
 
 class SceneRiggingMixin:
     """Character rigging and physics helpers backed by Blender APIs."""
