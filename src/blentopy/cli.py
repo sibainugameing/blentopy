@@ -7,7 +7,9 @@ import importlib.util
 import sys
 from pathlib import Path
 
+from . import __version__
 from .discovery import BlenderNotFoundError, blender_version, find_blender
+from .validation import ScriptValidationError, validate_script
 from .runner import (
     RenderError,
     RenderProgress,
@@ -19,23 +21,42 @@ from .runner import (
 DEFAULT_EXAMPLE = Path(__file__).with_name("demo_scene.py")
 
 
+def _positive_int(value: str) -> int:
+    """argparse type: reject zero, negative, and non-integer values early."""
+    try:
+        number = int(value)
+    except ValueError:
+        raise argparse.ArgumentTypeError(f"{value!r} is not an integer.") from None
+    if number < 1:
+        raise argparse.ArgumentTypeError(f"{value!r} must be 1 or greater.")
+    return number
+
+
 def add_render_options(parser: argparse.ArgumentParser) -> None:
     parser.add_argument("--blender", help="Path to Blender executable.")
     parser.add_argument("--output", help="Output MP4 path.")
     parser.add_argument("--blend-output", help="Output .blend path.")
     parser.add_argument("--workspace", help="Workspace for audio assets.")
-    parser.add_argument("--width", type=int, default=1080)
-    parser.add_argument("--height", type=int, default=1920)
-    parser.add_argument("--fps", type=int, default=30)
-    parser.add_argument("--duration", type=int, default=8, help="Duration in seconds.")
-    parser.add_argument("--timeout", type=int, default=3600, help="Timeout in seconds.")
+    parser.add_argument("--width", type=_positive_int, default=1080)
+    parser.add_argument("--height", type=_positive_int, default=1920)
+    parser.add_argument("--fps", type=_positive_int, default=30)
+    parser.add_argument("--duration", type=_positive_int, default=8, help="Duration in seconds.")
+    parser.add_argument("--timeout", type=_positive_int, default=3600, help="Timeout in seconds.")
 
 
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         prog="blentopy", description="Create Blender scenes and render MP4 videos with Python."
     )
+    parser.add_argument(
+        "--version", action="version", version=f"%(prog)s {__version__}"
+    )
     sub = parser.add_subparsers(dest="command", required=True)
+    check = sub.add_parser(
+        "check",
+        help="Check scene script syntax without launching Blender (use '-' for stdin).",
+    )
+    check.add_argument("script", help="Path to a scene script, or '-' to read stdin.")
     doctor = sub.add_parser("doctor", help="Check the Blender environment.")
     doctor.add_argument("--blender", help="Path to Blender executable.")
     demo = sub.add_parser("demo", help="Render the built-in demo scene.")
@@ -50,10 +71,10 @@ def build_parser() -> argparse.ArgumentParser:
     preview.add_argument("--blender", help="Path to Blender executable.")
     preview.add_argument("--blend-output", help="Output .blend path.")
     preview.add_argument("--workspace", help="Workspace for audio assets.")
-    preview.add_argument("--width", type=int, default=1080)
-    preview.add_argument("--height", type=int, default=1920)
-    preview.add_argument("--fps", type=int, default=30)
-    preview.add_argument("--duration", type=int, default=8, help="Scene duration in seconds.")
+    preview.add_argument("--width", type=_positive_int, default=1080)
+    preview.add_argument("--height", type=_positive_int, default=1920)
+    preview.add_argument("--fps", type=_positive_int, default=30)
+    preview.add_argument("--duration", type=_positive_int, default=8, help="Scene duration in seconds.")
     preview.add_argument(
         "--startup-timeout", type=int, default=120,
         help="Seconds to wait for Blender to save the preview scene (1-600).",
@@ -63,6 +84,34 @@ def build_parser() -> argparse.ArgumentParser:
         help="Open the optional desktop interface (the GUI delegates to the CLI).",
     )
     return parser
+
+
+def _check(args: argparse.Namespace) -> int:
+    """Run the fast syntax preflight so mistakes surface before a slow render."""
+    label = "<stdin>" if args.script == "-" else args.script
+    try:
+        source = (
+            sys.stdin.read()
+            if args.script == "-"
+            else Path(args.script).read_text(encoding="utf-8")
+        )
+    except (OSError, UnicodeDecodeError) as exc:
+        print(f"Cannot read {label}: {exc}", file=sys.stderr)
+        return 1
+    try:
+        validate_script(source)
+    except ScriptValidationError as exc:
+        where = f":{exc.lineno}" if exc.lineno else ""
+        print(f"{label}{where}: {exc}", file=sys.stderr)
+        if exc.source_line is not None:
+            print(f"    {exc.source_line.rstrip()}", file=sys.stderr)
+            if exc.col_offset is not None:
+                print(f"    {' ' * exc.col_offset}^", file=sys.stderr)
+        if exc.suggestion:
+            print(f"Hint: {exc.suggestion}", file=sys.stderr)
+        return 1
+    print(f"{label}: syntax OK (Blender-side errors are only found when the scene runs).")
+    return 0
 
 
 def _show_render_progress(progress: RenderProgress) -> None:
@@ -136,6 +185,8 @@ def main(argv: list[str] | None = None) -> int:
         from .gui import main as gui_main
 
         return gui_main()
+    if args.command == "check":
+        return _check(args)
     if args.command == "doctor":
         try:
             executable = find_blender(args.blender)
