@@ -348,7 +348,7 @@ The script receives:
 - math: Python's standard math module.
 - mathutils: Blender's mathutils module.
 
-Normal Python built-ins, imports, functions, classes, comprehensions, generators, loops, exception handling, and method chaining are available. Use the facade when convenient and call bpy directly for physics, nodes, modifiers, constraints, drivers, and any feature not wrapped by the facade. The full authoring and physics guide is documented in [docs/AI_SYSTEM_PROMPT.md](docs/AI_SYSTEM_PROMPT.md).
+Normal Python built-ins, imports, functions, classes, comprehensions, generators, loops, exception handling, and method chaining are available. Use the facade when convenient and call bpy directly for physics, nodes, modifiers, constraints, drivers, and any feature not wrapped by the facade. Use [docs/AI_SYSTEM_PROMPT.md](docs/AI_SYSTEM_PROMPT.md) as the compact AI contract. Detailed method signatures and examples are in [docs/AI_API_REFERENCE.md](docs/AI_API_REFERENCE.md).
 
 ### Scene-script rules (0.2)
 
@@ -410,7 +410,7 @@ The AI-native API includes reusable geometry/material specifications, mesh and g
 
 The API is deliberately layered: use scene-level intent helpers for ordinary composition, Object3D handles for precise edits, and custom geometry only when built-in shapes are insufficient. Normal render and preview calls create a fresh scene. For follow-up work, use the MCP `blentopy_inspect_scene` and `blentopy_edit_scene` tools to load a saved .blend, target existing objects by ID, and apply only the requested changes. The edit is saved atomically to the same .blend path. A Blender GUI that already has the file open must reload it to display the disk changes.
 
-See [docs/AI_SYSTEM_PROMPT.md](docs/AI_SYSTEM_PROMPT.md) for the authoritative API reference and scripting contract.
+See [docs/AI_SYSTEM_PROMPT.md](docs/AI_SYSTEM_PROMPT.md) for the compact generation contract and [docs/AI_API_REFERENCE.md](docs/AI_API_REFERENCE.md) for the detailed API reference.
 
 ## Iterative editing of an existing scene
 
@@ -752,7 +752,7 @@ Add a server entry to the configuration file used by your MCP-compatible applica
 
 Absolute paths are recommended. Relative paths and home-directory shortcuts may be interpreted differently by different MCP clients.
 
-At startup, the MCP server loads the bundled **AI_SYSTEM_PROMPT.md** resource and sends it as server instructions to the connected AI client. The same authoring contract is maintained at **docs/AI_SYSTEM_PROMPT.md** in the repository. This gives the model the scene language, API reference, and cinematic quality rules without requiring you to paste the entire document into every request; it also works with normal wheel installations, not only editable repository checkouts.
+At startup, the MCP server loads the bundled **AI_SYSTEM_PROMPT.md** and sends the compact operating contract to the connected AI client. The same file is maintained at **docs/AI_SYSTEM_PROMPT.md**. Detailed facade signatures and workflows are kept separately in **docs/AI_API_REFERENCE.md**, so the core prompt stays focused instead of repeating the full manual.
 
 ### 4. Available MCP tools
 
@@ -765,7 +765,7 @@ At startup, the MCP server loads the bundled **AI_SYSTEM_PROMPT.md** resource an
 | **blentopy_edit_scene** | Applies targeted changes to an existing .blend and saves the updated project atomically. |
 | **blentopy_list_outputs** | Lists recent files in the workspace's renders directory. |
 
-The render and preview tools accept Python source code as a string. The scene language provides **studio**, **math**, integer-expression **range()**, and bounded list/tuple/scene.find() iteration; the MCP server validates scripts with the same restrictions as the CLI. Default output is 1080×1920 at 30 FPS for 8 seconds.
+The render and preview tools accept ordinary Python source code as a string. Preflight checks Python syntax and input size; it does not impose an API allowlist, AST-node whitelist, or loop-iteration cap. The full **bpy** and **mathutils** APIs are available. Blender operations still have a timeout, and the resulting scene and output artifacts are validated. Default output is 1080×1920 at 30 FPS for 8 seconds.
 
 ### 5. Example requests to the connected AI
 
