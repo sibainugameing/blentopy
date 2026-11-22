@@ -29,8 +29,13 @@ python -m pip install -e '.[mcp]'   # MCPを使う場合のみ
 
 ~~~bash
 blentopy doctor                 # Blenderが見つかるか確認
+blentopy new my_scene.py         # minimalテンプレートを生成
+blentopy new spinner.py --template spinner  # アニメーション付きテンプレート
+blentopy new --list              # テンプレート一覧
 blentopy demo                   # 内蔵デモをMP4にレンダリング
 blentopy check my_scene.py      # Blenderを起動せず構文だけ高速チェック
+blentopy check my_scene.py --json  # AIやエディタ向けJSON出力
+blentopy doctor --json          # 環境情報をJSON出力
 blentopy preview my_scene.py    # BlenderのGUIで開いて確認
 blentopy render my_scene.py --output renders/out.mp4
 blentopy gui                    # 簡易デスクトップGUI
@@ -47,6 +52,29 @@ export BLENTOPY_BLENDER="/Applications/Blender.app/Contents/MacOS/Blender"
 # Windows PowerShell
 $env:BLENTOPY_BLENDER = "C:\Program Files\Blender Foundation\Blender 4.2\blender.exe"
 ~~~
+
+## スターターシーン
+
+空のファイルから始めず、動作に必要なカメラ・ライトを含むシーンを生成できます。
+
+~~~bash
+blentopy new my_scene.py
+blentopy new spinner.py --template spinner
+blentopy new --list
+~~~
+
+- `minimal`: ベベル付きキューブ、床、カメラ、キーライト。
+- `spinner`: 回転するメインオブジェクトと、円軌道上を回るビーズのアニメーション。
+
+既存ファイルは通常上書きされません。明示的に上書きする場合だけ `--force` を付けてください。
+
+~~~bash
+blentopy new my_scene.py --force
+blentopy check my_scene.py --json
+blentopy doctor --json
+~~~
+
+`check --json` は構文検査の結果をJSONで出力します。構文検査はBlender内での実行成功を保証するものではありません。
 
 ## AIチャットと組み合わせる流れ
 

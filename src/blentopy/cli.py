@@ -5,8 +5,10 @@ from __future__ import annotations
 import argparse
 import importlib.util
 import json
+import os
 import re
 import sys
+import tempfile
 from pathlib import Path
 
 from . import __version__
@@ -152,6 +154,39 @@ def _check(args: argparse.Namespace) -> int:
     return 0
 
 
+def _write_template(target: Path, content: str, *, force: bool) -> None:
+    """Write a template without clobbering existing files or exposing partial output."""
+    target.parent.mkdir(parents=True, exist_ok=True)
+    if not force:
+        created = False
+        try:
+            with target.open("x", encoding="utf-8") as stream:
+                created = True
+                stream.write(content)
+        except OSError:
+            if created:
+                target.unlink(missing_ok=True)
+            raise
+        return
+
+    descriptor, temporary_name = tempfile.mkstemp(
+        prefix=f".{target.name}.",
+        suffix=".tmp",
+        dir=target.parent,
+        text=True,
+    )
+    try:
+        with os.fdopen(descriptor, "w", encoding="utf-8") as stream:
+            stream.write(content)
+        os.replace(temporary_name, target)
+    except OSError:
+        try:
+            os.unlink(temporary_name)
+        except FileNotFoundError:
+            pass
+        raise
+
+
 def _new(args: argparse.Namespace) -> int:
     """Write a starter scene script so new users never face a blank file."""
     if args.list:
@@ -165,19 +200,17 @@ def _new(args: argparse.Namespace) -> int:
     target = Path(args.name)
     if target.suffix != ".py":
         target = target.with_suffix(".py") if not target.suffix else Path(f"{target}.py")
-    if target.exists() and not args.force:
+    try:
+        _write_template(target, TEMPLATES[args.template], force=args.force)
+    except FileExistsError:
         print(f"{target} already exists. Use --force to overwrite.", file=sys.stderr)
         return 1
-    try:
-        target.parent.mkdir(parents=True, exist_ok=True)
-        target.write_text(TEMPLATES[args.template], encoding="utf-8")
     except OSError as exc:
         print(f"Cannot write {target}: {exc}", file=sys.stderr)
         return 1
     print(f"Created {target} ({args.template} template).")
     print(f"Next: blentopy check {target}  |  blentopy preview {target}  |  blentopy render {target}")
     return 0
-
 
 def _show_render_progress(progress: RenderProgress) -> None:
     labels = {

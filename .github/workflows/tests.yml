@@ -71,6 +71,27 @@ jobs:
             --width 256 --height 256 --fps 2 --duration 1 --timeout 600
           test -s renders/ci-smoke.mp4
           test -s renders/ci-smoke.blend
+      - name: Generate and render both starter templates
+        shell: bash
+        run: |
+          mkdir -p renders
+          WORKSPACE="$RUNNER_TEMP/blentopy-starter-workspace"
+          blentopy new renders/starter-minimal.py --template minimal
+          blentopy check renders/starter-minimal.py --json
+          blentopy render renders/starter-minimal.py \
+            --blender "$BLENTOPY_BLENDER" \
+            --output renders/starter-minimal.mp4 \
+            --blend-output renders/starter-minimal.blend \
+            --workspace "$WORKSPACE" \
+            --width 256 --height 256 --fps 30 --duration 4 --timeout 600
+          blentopy new renders/starter-spinner.py --template spinner
+          blentopy check renders/starter-spinner.py --json
+          blentopy render renders/starter-spinner.py \
+            --blender "$BLENTOPY_BLENDER" \
+            --output renders/starter-spinner.mp4 \
+            --blend-output renders/starter-spinner.blend \
+            --workspace "$WORKSPACE" \
+            --width 256 --height 256 --fps 30 --duration 6 --timeout 600
       - name: Upload Blender integration artifacts
         uses: actions/upload-artifact@v4
         with:
@@ -78,5 +99,9 @@ jobs:
           path: |
             renders/ci-smoke.mp4
             renders/ci-smoke.blend
+            renders/starter-minimal.mp4
+            renders/starter-minimal.blend
+            renders/starter-spinner.mp4
+            renders/starter-spinner.blend
           if-no-files-found: error
           retention-days: 7

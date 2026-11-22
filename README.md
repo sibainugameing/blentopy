@@ -13,6 +13,7 @@ blentopy is not an AI model and does not call a hosted AI API. An MCP-capable ch
 - [Installation](#installation)
 - [Updating](#updating)
 - [Checking the Blender installation](#checking-the-blender-installation)
+- [Creating a starter scene](#creating-a-starter-scene)
 - [Using the lightweight desktop GUI](#using-the-lightweight-desktop-gui)
 - [Previewing a scene in the Blender GUI](#previewing-a-scene-in-the-blender-gui)
 - [Rendering an MP4](#rendering-an-mp4)
@@ -169,6 +170,34 @@ $env:BLENTOPY_BLENDER = "C:\Program Files\Blender Foundation\Blender 4.2\blender
 ~~~
 
 Use the actual path for your Blender installation.
+
+## Creating a starter scene
+
+Use `blentopy new` to create a working Python scene instead of starting from an empty file:
+
+~~~bash
+blentopy new scenes/minimal.py
+blentopy new scenes/spinner.py --template spinner
+blentopy new --list
+~~~
+
+The `minimal` template includes a camera and key light. The `spinner` template adds a keyframed rotating hero and a parented ring of orbiting beads. Both templates include camera framing and lighting so they can pass scene validation and render immediately.
+
+Existing files are never overwritten unless `--force` is supplied:
+
+~~~bash
+blentopy new scenes/minimal.py --force
+~~~
+
+Run the syntax preflight before launching Blender. It parses ordinary Python; it does not prove that Blender operations will succeed:
+
+~~~bash
+blentopy check scenes/minimal.py
+blentopy check scenes/minimal.py --json
+blentopy doctor --json
+~~~
+
+JSON mode prints one machine-readable object to standard output. A failed `check` includes the error code and, when available, the source line, line number, column, and correction hint. The command also returns a non-zero exit status on failure.
 
 ## Using the lightweight desktop GUI
 
@@ -350,7 +379,7 @@ The script receives:
 
 Normal Python built-ins, imports, functions, classes, comprehensions, generators, loops, exception handling, and method chaining are available. Use the facade when convenient and call bpy directly for physics, nodes, modifiers, constraints, drivers, and any feature not wrapped by the facade. Use [docs/AI_SYSTEM_PROMPT.md](docs/AI_SYSTEM_PROMPT.md) as the compact AI contract. Detailed method signatures and examples are in [docs/AI_API_REFERENCE.md](docs/AI_API_REFERENCE.md).
 
-### Scene-script rules (0.2)
+### Scene-script rules (0.3)
 
 - Use stable, descriptive IDs for important objects such as "robot.head" and "camera.main". Omit IDs for repeated incidental meshes; blentopy assigns deterministic IDs automatically.
 - Define geometry with studio.geo and materials with studio.mat, then create objects through studio.scene.
@@ -374,7 +403,7 @@ Save the generated code to **examples/my_scene.py**, then preview it. The reposi
 blentopy preview examples/ai_native_scene.py
 ~~~
 
-## AI-native scene API (0.2)
+## AI-native scene API (0.3)
 
 New scene scripts use a composable, Three.js-inspired object model designed for AI authoring:
 
