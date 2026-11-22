@@ -137,7 +137,7 @@ class TextCreationAndEditingTests(unittest.TestCase):
         font_path.parent.mkdir()
         font_path.write_bytes(b"fake-font")
         title = self.scene.text(body="TITLE", font_path="fonts/display.ttf")
-        self.assertEqual(title._object.data.font.filepath, str(font_path))
+        self.assertEqual(Path(title._object.data.font.filepath).resolve(), font_path.resolve())
         self.assertIsNotNone(title._object.data.font)
 
     def test_rejects_font_path_outside_workspace(self):

@@ -182,13 +182,13 @@ class SceneModelingMixin:
             word_spacing=word_spacing,
             line_spacing=line_spacing,
         )
-        font = self._load_text_font(font_path)
         object_id = self._allocate_id("text") if id is None else _identifier(id)
         if object_id in self._objects:
             raise ValueError(f"Duplicate scene object id: {object_id}")
         object_position = _vector3(position, "position")
         object_rotation = _vector3(rotation, "rotation")
         self._ensure_capacity(objects=1)
+        font = self._load_text_font(font_path)
 
         bpy = self._backend._bpy
         data = bpy.data.curves.new(f"{object_id} Data", type="FONT")
