@@ -51,6 +51,23 @@ class MaterialFactoryTests(unittest.TestCase):
 
 
 class SceneTimebaseTests(unittest.TestCase):
+    def test_configure_rejects_invalid_duration_types_without_backend_mutation(self):
+        class Backend:
+            def set_timeline(self, duration, fps):
+                self.timeline = (duration, fps)
+
+            def set_world_color(self, color, strength):
+                pass
+
+        for invalid in ("8", True, float("nan"), float("inf")):
+            backend = Backend()
+            owner = type("Owner", (), {"_backend": backend})()
+            scene = SceneAPI(owner, duration=8, fps=30)
+            with self.subTest(duration=invalid):
+                with self.assertRaises((TypeError, ValueError)):
+                    scene.configure(duration=invalid)
+                self.assertFalse(hasattr(backend, "timeline"))
+
     def test_configure_inherits_render_job_timebase_when_omitted(self):
         class Backend:
             def __init__(self):
@@ -328,6 +345,27 @@ class ResourceLimitTests(unittest.TestCase):
 
         usage = scene_resource_usage(type("Scene", (), {"objects": [MeshObject(), EmptyObject()]})())
         self.assertEqual(usage, {"objects": 2, "polygons": 320, "modifiers": 1})
+
+    def test_modifier_estimate_saturates_for_pathological_subdivision_values(self):
+        from types import SimpleNamespace
+        from blentopy.resource_limits import MAX_SCENE_POLYGONS, estimate_object_polygons
+
+        modifier = SimpleNamespace(type="SUBSURF", levels=100_000, render_levels=100_000)
+        obj = SimpleNamespace(
+            type="MESH",
+            data=SimpleNamespace(polygons=[None, None]),
+            modifiers=[modifier],
+        )
+        self.assertEqual(estimate_object_polygons(obj), MAX_SCENE_POLYGONS + 1)
+
+    def test_capacity_rejects_negative_or_non_integer_deltas(self):
+        from blentopy.resource_limits import ensure_scene_capacity
+
+        scene = SimpleNamespace(objects=[])
+        for value in (-1, 1.5, True):
+            with self.subTest(value=value):
+                with self.assertRaises(ValueError):
+                    ensure_scene_capacity(scene, added_objects=value)
 
     def test_scene_resource_budget_rejects_modifier_expansion(self):
         from blentopy.resource_limits import ResourceLimitError, ensure_scene_capacity

@@ -71,6 +71,65 @@ class ExtendedGeometryTests(unittest.TestCase):
                     allowed_suffixes={".glb"}, label="Model export",
                 )
 
+    def test_geometry_and_material_factories_reject_implicit_numeric_coercion(self):
+        with self.assertRaises(TypeError):
+            GeometryFactory.sphere(radius="1")
+        with self.assertRaises(TypeError):
+            GeometryFactory.sphere(segments=16.5)
+        with self.assertRaises(TypeError):
+            GeometryFactory.cylinder(height=True)
+        with self.assertRaises(TypeError):
+            MaterialFactory.pbr(roughness="0.5")
+
+    def test_export_uses_staging_and_publishes_sidecar_files_together(self):
+        import tempfile
+        from pathlib import Path
+        from types import SimpleNamespace
+
+        with tempfile.TemporaryDirectory() as folder:
+            workspace = Path(folder) / "workspace"
+            workspace.mkdir()
+            mixin = object.__new__(SceneFeatureMixin)
+            mixin._backend = SimpleNamespace(
+                _workspace=workspace,
+                _bpy=SimpleNamespace(context=SimpleNamespace(selected_objects=[])),
+            )
+
+            def export(_operators, staged_path):
+                staged_path.write_text("model data", encoding="utf-8")
+                staged_path.with_suffix(".mtl").write_text("material data", encoding="utf-8")
+
+            mixin._run_file_operator = export
+            result = Path(mixin.export_model("exports/model.obj"))
+            self.assertEqual(result, workspace / "exports" / "model.obj")
+            self.assertTrue(result.is_file())
+            self.assertTrue(result.with_suffix(".mtl").is_file())
+            self.assertFalse(any(".blentopy-" in item.name for item in result.parent.iterdir()))
+
+    def test_failed_export_removes_partial_staging_output(self):
+        import tempfile
+        from pathlib import Path
+        from types import SimpleNamespace
+
+        with tempfile.TemporaryDirectory() as folder:
+            workspace = Path(folder) / "workspace"
+            workspace.mkdir()
+            mixin = object.__new__(SceneFeatureMixin)
+            mixin._backend = SimpleNamespace(
+                _workspace=workspace,
+                _bpy=SimpleNamespace(context=SimpleNamespace(selected_objects=[])),
+            )
+
+            def fail(_operators, staged_path):
+                staged_path.write_text("partial", encoding="utf-8")
+                raise RuntimeError("export failed")
+
+            mixin._run_file_operator = fail
+            with self.assertRaisesRegex(RuntimeError, "export failed"):
+                mixin.export_model("exports/model.glb")
+            export_folder = workspace / "exports"
+            self.assertFalse(export_folder.exists() and list(export_folder.iterdir()))
+
     def test_additional_geometry_rejects_invalid_parameters(self):
         with self.assertRaisesRegex(ValueError, "height"):
             GeometryFactory.capsule(radius=1, height=1.5)

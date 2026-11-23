@@ -65,10 +65,10 @@ class SceneDiagnosticsMixin:
         limits = {"objects": 1_000, "polygons": 300_000, "modifiers": 1_500}
         for resource, value in usage.items():
             if value > limits[resource]:
-                warnings.append(
-                    f"Scene {resource} usage is {value:,}, above the convenience API "
-                    f"budget of {limits[resource]:,}. Native bpy operations are not "
-                    "blocked by this facade budget; check memory, cache size, and render time."
+                errors.append(
+                    f"Scene {resource} budget exceeded: {value:,} used, "
+                    f"limit {limits[resource]:,}. Reduce geometry density, object count, "
+                    "subdivision levels, or repeated arrays before rendering or saving."
                 )
 
         render = scene.render

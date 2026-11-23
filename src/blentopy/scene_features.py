@@ -6,6 +6,9 @@ blentopy CLI/worker. File operations are deliberately confined to the workspace.
 from __future__ import annotations
 
 import math
+import os
+import shutil
+import tempfile
 from pathlib import Path
 from typing import Any
 
@@ -330,6 +333,8 @@ class SceneFeatureMixin:
         path = self._workspace_path(
             filepath, must_exist=True, allowed_suffixes=allowed, label="Model import"
         )
+        if path.stat().st_size > 512 * 1024 * 1024:
+            raise ValueError("Model imports must not exceed 512 MiB.")
         if not isinstance(format, str) or not format.strip():
             raise ValueError("format must be 'auto' or a supported model format.")
         resolved_format = path.suffix.lower().lstrip(".") if format == "auto" else format.lower()
@@ -342,7 +347,16 @@ class SceneFeatureMixin:
         if not isinstance(role, str) or len(role) > 64:
             raise ValueError("role must be a string of at most 64 characters.")
         prefix = id_prefix.strip().replace(" ", "_")
+        bpy = self._backend._bpy
         before = set(self._backend.scene.objects)
+        tracked_collections = (
+            "meshes", "curves", "materials", "images", "cameras", "lights",
+            "armatures", "actions", "collections",
+        )
+        before_data = {
+            name: set(getattr(bpy.data, name, ()))
+            for name in tracked_collections
+        }
         operator_sets = {
             "gltf": (("import_scene", "gltf", {}),),
             "obj": (("wm", "obj_import", {}), ("import_scene", "obj", {})),
@@ -351,15 +365,15 @@ class SceneFeatureMixin:
             "ply": (("wm", "ply_import", {}), ("import_mesh", "ply", {})),
             "usd": (("wm", "usd_import", {}),),
         }
-        self._run_file_operator(operator_sets[aliases[resolved_format]], path)
-        imported = [obj for obj in self._backend.scene.objects if obj not in before]
-        if not imported:
-            raise RuntimeError(
-                f"Blender's {resolved_format.upper()} importer completed but created no objects. "
-                "Check whether the file contains supported scene data."
-            )
-        bpy = self._backend._bpy
+        imported = []
         try:
+            self._run_file_operator(operator_sets[aliases[resolved_format]], path)
+            imported = [obj for obj in self._backend.scene.objects if obj not in before]
+            if not imported:
+                raise RuntimeError(
+                    f"Blender's {resolved_format.upper()} importer completed but created no objects. "
+                    "Check whether the file contains supported scene data."
+                )
             from .resource_limits import scene_resource_usage
 
             usage = scene_resource_usage(self._backend.scene)
@@ -392,6 +406,19 @@ class SceneFeatureMixin:
                     bpy.data.objects.remove(object_ref, do_unlink=True)
                 except (ReferenceError, RuntimeError):
                     pass
+            # Remove newly created datablocks only when they became orphaned
+            # after rollback. All data present before import is left untouched.
+            for name in tracked_collections:
+                collection = getattr(bpy.data, name, None)
+                if collection is None:
+                    continue
+                for datablock in list(collection):
+                    if datablock in before_data[name] or getattr(datablock, "users", 0) != 0:
+                        continue
+                    try:
+                        collection.remove(datablock)
+                    except (ReferenceError, RuntimeError, TypeError):
+                        pass
             raise
 
     def export_model(
@@ -433,11 +460,35 @@ class SceneFeatureMixin:
                     ("export_mesh", "ply", {"use_selection": selected_only})),
             "usd": (("wm", "usd_export", {"selected_objects_only": selected_only}),),
         }
-        self._run_file_operator(option_sets[resolved_format], path)
-        if not path.is_file() or path.stat().st_size == 0:
-            raise RuntimeError(
-                f"Blender's {resolved_format.upper()} exporter did not create a non-empty file at {path}."
-            )
+        staging_dir = Path(tempfile.mkdtemp(prefix=f".{path.stem}.blentopy-", dir=path.parent))
+        staged_path = staging_dir / path.name
+        published: list[Path] = []
+        try:
+            self._run_file_operator(option_sets[resolved_format], staged_path)
+            outputs = sorted(item for item in staging_dir.iterdir() if item.is_file())
+            if not staged_path.is_file() or staged_path.stat().st_size == 0:
+                raise RuntimeError(
+                    f"Blender's {resolved_format.upper()} exporter did not create a non-empty file at {staged_path}."
+                )
+            destinations = [(item, path.parent / item.name) for item in outputs]
+            collisions = [destination for _, destination in destinations if destination.exists()]
+            if collisions:
+                raise FileExistsError(
+                    "Export output set would overwrite existing files; refusing to publish: "
+                    + ", ".join(str(item) for item in collisions)
+                )
+            for source_file, destination in destinations:
+                os.replace(source_file, destination)
+                published.append(destination)
+        except Exception:
+            for destination in reversed(published):
+                try:
+                    destination.unlink(missing_ok=True)
+                except OSError:
+                    pass
+            raise
+        finally:
+            shutil.rmtree(staging_dir, ignore_errors=True)
         return str(path)
 
     def _run_file_operator(self, candidates, path: Path) -> None:

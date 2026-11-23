@@ -85,8 +85,11 @@ def main() -> int:
         studio.blender_scene.frame_set(studio.blender_scene.frame_start)
         bpy.context.view_layer.update()
         bpy.ops.wm.save_as_mainfile(filepath=str(blend))
-        if not blend.is_file():
-            raise RuntimeError(f"Blender did not create the project file: {blend}")
+        if not blend.is_file() or blend.stat().st_size < 7:
+            raise RuntimeError(f"Blender did not create a complete project file: {blend}")
+        with blend.open("rb") as stream:
+            if stream.read(7) != b"BLENDER":
+                raise RuntimeError(f"Blender saved an invalid project file: {blend}")
 
         _write_status(status_path, {"status": "ready", "blend": str(blend)})
         print(f"BLENTOPY_PREVIEW_READY={blend}", flush=True)

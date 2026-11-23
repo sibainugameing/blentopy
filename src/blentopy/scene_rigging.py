@@ -17,6 +17,7 @@ class SceneRiggingMixin:
         role: str | None = "rig",
     ) -> Object3D:
         """Create an armature from a validated hierarchy of at most 64 bones."""
+        self._validate_role(role)
         definitions = _normalize_bone_definitions(bones)
         object_id = self._allocate_id("armature") if id is None else _identifier(id)
         if object_id in self._objects:

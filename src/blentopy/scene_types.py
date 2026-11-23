@@ -114,6 +114,31 @@ def _normalize_bone_definitions(bones: Sequence[dict[str, Any]]) -> list[dict[st
         visit(name)
     return normalized
 
+def _finite_number(value: Any, label: str, *, minimum: float | None = None,
+                   maximum: float | None = None, minimum_exclusive: bool = False) -> float:
+    if type(value) not in {int, float}:
+        raise TypeError(f"{label} must be an integer or float (booleans and numeric strings are not accepted).")
+    number = float(value)
+    if not math.isfinite(number):
+        raise ValueError(f"{label} must be finite.")
+    if minimum is not None:
+        invalid = number <= minimum if minimum_exclusive else number < minimum
+        if invalid:
+            comparator = "greater than" if minimum_exclusive else "at least"
+            raise ValueError(f"{label} must be {comparator} {minimum}.")
+    if maximum is not None and number > maximum:
+        raise ValueError(f"{label} must be at most {maximum}.")
+    return number
+
+
+def _bounded_integer(value: Any, label: str, minimum: int, maximum: int) -> int:
+    if type(value) is not int:
+        raise TypeError(f"{label} must be an integer.")
+    if not minimum <= value <= maximum:
+        raise ValueError(f"{label} must be between {minimum} and {maximum}.")
+    return value
+
+
 def _identifier(value: str) -> str:
     if not isinstance(value, str) or not value.strip():
         raise ValueError("Object id must be a non-empty string.")
@@ -152,9 +177,8 @@ class GeometryFactory:
         dimensions = _vector3(size, "size")
         if any(part <= 0 for part in dimensions):
             raise ValueError("Box dimensions must be greater than zero.")
-        if not math.isfinite(bevel) or bevel < 0:
-            raise ValueError("bevel must be finite and non-negative.")
-        return GeometrySpec("box", (("size", dimensions), ("bevel", float(bevel))))
+        bevel = _finite_number(bevel, "bevel", minimum=0)
+        return GeometrySpec("box", (("size", dimensions), ("bevel", bevel)))
 
     @staticmethod
     def rounded_box(size: Sequence[float] = (1, 1, 1), bevel: float = 0.06) -> GeometrySpec:
@@ -162,18 +186,19 @@ class GeometryFactory:
 
     @staticmethod
     def sphere(radius: float = 0.5, segments: int = 32, rings: int = 16) -> GeometrySpec:
-        if not math.isfinite(radius) or radius <= 0:
-            raise ValueError("sphere radius must be greater than zero.")
+        radius = _finite_number(radius, "sphere radius", minimum=0, minimum_exclusive=True)
+        segments = _bounded_integer(segments, "sphere segments", 8, 128)
+        rings = _bounded_integer(rings, "sphere rings", 4, 64)
         return GeometrySpec("sphere", (
-            ("radius", float(radius)),
-            ("segments", max(8, min(int(segments), 128))),
-            ("rings", max(4, min(int(rings), 64))),
+            ("radius", radius), ("segments", segments), ("rings", rings),
         ))
 
     @staticmethod
     def plane(size: Sequence[float] = (10, 10)) -> GeometrySpec:
         if isinstance(size, (str, bytes)) or len(size) != 2:
             raise ValueError("Plane size must contain width and depth.")
+        if any(type(part) not in {int, float} for part in size):
+            raise TypeError("Plane dimensions must be numeric (booleans and numeric strings are not accepted).")
         dimensions = tuple(float(part) for part in size)
         if not all(math.isfinite(part) and part > 0 for part in dimensions):
             raise ValueError("Plane dimensions must be finite and greater than zero.")
@@ -181,20 +206,20 @@ class GeometryFactory:
 
     @staticmethod
     def cylinder(radius: float = 0.5, height: float = 1, segments: int = 32) -> GeometrySpec:
-        if not all(math.isfinite(part) and part > 0 for part in (radius, height)):
-            raise ValueError("Cylinder radius and height must be greater than zero.")
+        radius = _finite_number(radius, "Cylinder radius", minimum=0, minimum_exclusive=True)
+        height = _finite_number(height, "Cylinder height", minimum=0, minimum_exclusive=True)
+        segments = _bounded_integer(segments, "Cylinder segments", 8, 128)
         return GeometrySpec("cylinder", (
-            ("radius", float(radius)), ("height", float(height)),
-            ("segments", max(8, min(int(segments), 128))),
+            ("radius", radius), ("height", height), ("segments", segments),
         ))
 
     @staticmethod
     def cone(radius: float = 0.5, height: float = 1, segments: int = 32) -> GeometrySpec:
-        if not all(math.isfinite(part) and part > 0 for part in (radius, height)):
-            raise ValueError("Cone radius and height must be greater than zero.")
+        radius = _finite_number(radius, "Cone radius", minimum=0, minimum_exclusive=True)
+        height = _finite_number(height, "Cone height", minimum=0, minimum_exclusive=True)
+        segments = _bounded_integer(segments, "Cone segments", 8, 128)
         return GeometrySpec("cone", (
-            ("radius", float(radius)), ("height", float(height)),
-            ("segments", max(8, min(int(segments), 128))),
+            ("radius", radius), ("height", height), ("segments", segments),
         ))
 
     @staticmethod
@@ -204,15 +229,15 @@ class GeometryFactory:
         major_segments: int = 48,
         minor_segments: int = 12,
     ) -> GeometrySpec:
-        if not math.isfinite(major_radius) or major_radius <= 0:
-            raise ValueError("major_radius must be greater than zero.")
-        if not math.isfinite(minor_radius) or not 0 < minor_radius < major_radius:
-            raise ValueError("minor_radius must be positive and smaller than major_radius.")
+        major_radius = _finite_number(major_radius, "major_radius", minimum=0, minimum_exclusive=True)
+        minor_radius = _finite_number(minor_radius, "minor_radius", minimum=0, minimum_exclusive=True)
+        if minor_radius >= major_radius:
+            raise ValueError("minor_radius must be smaller than major_radius.")
+        major_segments = _bounded_integer(major_segments, "major_segments", 12, 128)
+        minor_segments = _bounded_integer(minor_segments, "minor_segments", 6, 64)
         return GeometrySpec("torus", (
-            ("major_radius", float(major_radius)),
-            ("minor_radius", float(minor_radius)),
-            ("major_segments", max(12, min(int(major_segments), 128))),
-            ("minor_segments", max(6, min(int(minor_segments), 64))),
+            ("major_radius", major_radius), ("minor_radius", minor_radius),
+            ("major_segments", major_segments), ("minor_segments", minor_segments),
         ))
 
     @staticmethod
@@ -454,11 +479,10 @@ class MaterialFactory:
         emission: str | Sequence[float] | None = None,
         emission_strength: float = 0,
     ) -> MaterialSpec:
-        for label, value in (("roughness", roughness), ("metallic", metallic), ("coat", coat)):
-            if not math.isfinite(value) or not 0 <= value <= 1:
-                raise ValueError(f"{label} must be between 0 and 1.")
-        if not math.isfinite(emission_strength) or emission_strength < 0:
-            raise ValueError("emission_strength must be finite and non-negative.")
+        roughness = _finite_number(roughness, "roughness", minimum=0, maximum=1)
+        metallic = _finite_number(metallic, "metallic", minimum=0, maximum=1)
+        coat = _finite_number(coat, "coat", minimum=0, maximum=1)
+        emission_strength = _finite_number(emission_strength, "emission_strength", minimum=0)
         values = (
             ("color", _color(color)),
             ("roughness", float(roughness)),
@@ -474,8 +498,7 @@ class MaterialFactory:
         color: str | Sequence[float] = "#FFFFFF",
         strength: float = 2,
     ) -> MaterialSpec:
-        if not math.isfinite(strength) or strength < 0:
-            raise ValueError("Emission strength must be finite and non-negative.")
+        strength = _finite_number(strength, "Emission strength", minimum=0)
         rgba = _color(color)
         return MaterialSpec("emissive", (
             ("color", rgba), ("roughness", 0.4), ("metallic", 0.0),

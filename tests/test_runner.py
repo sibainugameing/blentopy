@@ -20,6 +20,7 @@ from blentopy.runner import (
     _find_compatible_blender,
     _validate_staged_artifacts,
     _publish_render_artifacts,
+    _validate_blend_artifact,
     validate_render_settings,
 )
 
@@ -355,6 +356,20 @@ class RenderProcessLifecycleTests(unittest.TestCase):
                         )
 
 
+class BlendArtifactValidationTests(unittest.TestCase):
+    def test_blend_validation_checks_signature_and_missing_file(self):
+        with tempfile.TemporaryDirectory() as folder:
+            path = Path(folder) / "scene.blend"
+            path.write_bytes(b"BLENDER-v300")
+            _validate_blend_artifact(path)
+            path.write_bytes(b"not a blend")
+            with self.assertRaisesRegex(RenderError, "valid Blender file signature"):
+                _validate_blend_artifact(path)
+            path.unlink()
+            with self.assertRaisesRegex(RenderError, "was not created"):
+                _validate_blend_artifact(path)
+
+
 class PreviewRunnerTests(unittest.TestCase):
     def test_error_report_includes_stable_error_code(self):
         report = format_error_report(RenderError("conflict", code="operation-conflict"))
@@ -417,7 +432,7 @@ class PreviewRunnerTests(unittest.TestCase):
                 captured["command"] = command
                 env = kwargs["env"]
                 blend = Path(env["BLENTOPY_BLEND"])
-                blend.write_text("test blend", encoding="utf-8")
+                blend.write_bytes(b"BLENDER-v300")
                 Path(env["BLENTOPY_PREVIEW_STATUS"]).write_text(
                     json.dumps({"status": "ready", "blend": str(blend)}),
                     encoding="utf-8",

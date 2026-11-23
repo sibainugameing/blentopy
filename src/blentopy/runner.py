@@ -596,6 +596,26 @@ def _stream_blender_process(
             code="operation-cancelled",
         ) from None
 
+def _validate_blend_artifact(path: Path, *, log: str = "") -> None:
+    """Reject missing, truncated, or non-Blender files before publication."""
+    if not path.is_file():
+        raise RenderError(f"Blend project was not created: {path}", log=log, code="invalid-blend-artifact")
+    if path.stat().st_size < 7:
+        raise RenderError(
+            f"Blend project is empty or truncated: {path} ({path.stat().st_size} bytes; expected at least 7).",
+            log=log,
+            code="invalid-blend-artifact",
+        )
+    with path.open("rb") as stream:
+        signature = stream.read(7)
+    if signature != b"BLENDER":
+        raise RenderError(
+            f"Saved project does not have a valid Blender file signature: {path}.",
+            log=log,
+            code="invalid-blend-artifact",
+        )
+
+
 def _validate_staged_artifacts(staged_output: Path, staged_blend: Path, *, log: str = "") -> None:
     """Reject truncated or misnamed artifacts before publishing either file."""
     if not staged_output.is_file():
@@ -616,23 +636,7 @@ def _validate_staged_artifacts(staged_output: Path, staged_blend: Path, *, log: 
             code="invalid-mp4-artifact",
         )
 
-    if not staged_blend.is_file():
-        raise RenderError(f"Blend project was not created: {staged_blend}", log=log)
-    if staged_blend.stat().st_size < 7:
-        raise RenderError(
-            f"Blend project is empty or truncated: {staged_blend} "
-            f"({staged_blend.stat().st_size} bytes; expected at least 7).",
-            log=log,
-            code="invalid-blend-artifact",
-        )
-    with staged_blend.open("rb") as stream:
-        blend_header = stream.read(7)
-    if blend_header != b"BLENDER":
-        raise RenderError(
-            f"Saved project does not have a valid Blender file signature: {staged_blend}.",
-            log=log,
-            code="invalid-blend-artifact",
-        )
+    _validate_blend_artifact(staged_blend, log=log)
 
 
 def _publish_render_artifacts(
@@ -854,8 +858,7 @@ def edit_scene_script(
                 log=log,
                 code="scene-validation-failed",
             )
-        if not staged_blend.is_file() or staged_blend.stat().st_size == 0:
-            raise RenderError(f"Blender did not create a valid edited project: {staged_blend}", log=log)
+        _validate_blend_artifact(staged_blend, log=log)
         os.replace(staged_blend, project)
         return SceneEditResult(executable, project, snapshot, log)
     finally:
@@ -1015,11 +1018,17 @@ def preview_script(
                             "Blender returned an invalid preview status.",
                             log=log,
                         )
-                    if not blend.is_file():
+                    reported_blend = status.get("blend")
+                    if (
+                        not isinstance(reported_blend, str)
+                        or Path(reported_blend).expanduser().resolve() != blend
+                    ):
                         raise RenderError(
-                            f"Blender reported success but the .blend file is missing: {blend}",
+                            "Blender preview status points to an unexpected project path.",
                             log=log,
+                            code="preview-status-path-mismatch",
                         )
+                    _validate_blend_artifact(blend, log=log)
                     if process.poll() is not None:
                         raise RenderError(
                             "Blender saved the scene but the GUI process closed unexpectedly.",

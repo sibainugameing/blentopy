@@ -72,6 +72,11 @@ class SceneAPI(
     def _backend(self):
         return self._owner._backend
 
+    @staticmethod
+    def _validate_role(role: str | None) -> None:
+        if role is not None and (not isinstance(role, str) or len(role) > 64):
+            raise ValueError("role must be a string of at most 64 characters.")
+
     def _ensure_capacity(
         self,
         *,
@@ -95,8 +100,12 @@ class SceneAPI(
         # Inherit the render job's timebase unless the script explicitly overrides it.
         resolved_duration = self._duration if duration is None else duration
         resolved_fps = self._fps if fps is None else fps
-        if not math.isfinite(resolved_duration) or not 0 < resolved_duration <= 120:
-            raise ValueError("duration must be greater than 0 and at most 120 seconds.")
+        if (
+            type(resolved_duration) not in {int, float}
+            or not math.isfinite(resolved_duration)
+            or not 0 < resolved_duration <= 120
+        ):
+            raise ValueError("duration must be a finite number greater than 0 and at most 120 seconds.")
         if type(resolved_fps) is not int or not 1 <= resolved_fps <= 60:
             raise ValueError("fps must be an integer between 1 and 60.")
         if round(float(resolved_duration) * resolved_fps) < 1:
@@ -120,8 +129,7 @@ class SceneAPI(
         key = _identifier(object_id)
         if key in self._objects:
             raise ValueError(f"Duplicate scene object id: {key}")
-        if role is not None and (not isinstance(role, str) or len(role) > 64):
-            raise ValueError("role must be a string of at most 64 characters.")
+        self._validate_role(role)
         result = Object3D(self, object_ref, key, kind, role)
         self._objects[key] = result
         object_ref["blentopy_id"] = key
@@ -373,6 +381,7 @@ class SceneAPI(
             id = None
         if geometry is None:
             raise TypeError("scene.mesh() requires a GeometrySpec via geometry=...")
+        self._validate_role(role)
         object_id = self._allocate_id("mesh") if id is None else _identifier(id)
         if object_id in self._objects:
             raise ValueError(f"Duplicate scene object id: {object_id}")
@@ -395,6 +404,7 @@ class SceneAPI(
         children: Sequence[Object3D] = (),
         role: str | None = None,
     ) -> Object3D:
+        self._validate_role(role)
         object_id = self._allocate_id("group") if id is None else _identifier(id)
         if object_id in self._objects:
             raise ValueError(f"Duplicate scene object id: {object_id}")
@@ -441,22 +451,33 @@ class SceneAPI(
     ) -> Object3D:
         """Update selected properties without recreating the scene object."""
         obj = self._resolve(target)
-        if position is not None:
-            obj.position.set(position)
-        if rotation is not None:
-            obj.rotation.set(rotation)
-        if scale is not None:
-            values = _vector3(scale, "scale")
-            if any(part <= 0 for part in values):
-                raise ValueError("Scale values must be greater than zero.")
-            obj.scale.set(values)
+        # Validate all arguments before mutating any Blender datablock.
+        position_value = _vector3(position, "position") if position is not None else None
+        rotation_value = _vector3(rotation, "rotation") if rotation is not None else None
+        scale_value = _vector3(scale, "scale") if scale is not None else None
+        if scale_value is not None and any(part <= 0 for part in scale_value):
+            raise ValueError("Scale values must be greater than zero.")
+        if visible is not None and type(visible) is not bool:
+            raise TypeError("visible must be a boolean.")
+        self._validate_role(role)
+        material_value = None
+        if material is not None:
+            if obj.kind not in {"mesh", "curve", "text"}:
+                raise ValueError("Materials can only be assigned to mesh, curve, or text objects.")
+            material_value = self._material(material, obj.id)
+
+        if position_value is not None:
+            obj.position.set(position_value)
+        if rotation_value is not None:
+            obj.rotation.set(rotation_value)
+        if scale_value is not None:
+            obj.scale.set(scale_value)
         if visible is not None:
             obj.visible = visible
-        if material is not None:
-            self.set_material(obj, material)
+        if material_value is not None:
+            obj._object.data.materials.clear()
+            obj._object.data.materials.append(material_value)
         if role is not None:
-            if not isinstance(role, str) or len(role) > 64:
-                raise ValueError("role must be a string of at most 64 characters.")
             obj.role = role
             obj._object["blentopy_role"] = role
         return obj

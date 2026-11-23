@@ -67,6 +67,8 @@ class SceneSpatialMixin:
         offset: Sequence[float] = (0, 0, 0),
     ) -> None:
         self._require_object(obj)
+        if not isinstance(anchor, str) or anchor not in {"center", "top", "bottom", "left", "right", "front", "back"}:
+            raise ValueError("anchor must be center, top, bottom, left, right, front, or back.")
         delta = _vector3(offset, "offset")
         self._backend._bpy.context.view_layer.update()
         obj_low, obj_high = self._world_bounds(obj)
@@ -93,8 +95,6 @@ class SceneSpatialMixin:
             result[1] -= (support[1] + obj_size[1]) * 0.5
         elif anchor == "back":
             result[1] += (support[1] + obj_size[1]) * 0.5
-        elif anchor != "center":
-            raise ValueError("anchor must be center, top, bottom, left, right, front, or back.")
         target_center = tuple(result[index] + delta[index] for index in range(3))
         world_matrix = obj._object.matrix_world.copy()
         world_matrix.translation = world_matrix.translation + self._backend._Vector(
@@ -138,8 +138,8 @@ class SceneSpatialMixin:
             raise ValueError("frame requires at least one target.")
         for item in objects:
             self._require_object(item)
-        if not math.isfinite(margin) or margin < 1:
-            raise ValueError("margin must be finite and at least 1.")
+        if type(margin) not in {int, float} or not math.isfinite(margin) or not 1 <= margin <= 1000:
+            raise ValueError("margin must be a finite number between 1 and 1000.")
         self._backend._bpy.context.view_layer.update()
         bounds = [self._world_bounds(item) for item in objects]
         lows = [min(bound[0][axis] for bound in bounds) for axis in range(3)]
@@ -219,8 +219,10 @@ class SceneSpatialMixin:
             raise ValueError("axis must be x, y, or z.")
         if not objects:
             return
-        if not math.isfinite(spacing):
-            raise ValueError("spacing must be finite.")
+        if type(spacing) not in {int, float} or not math.isfinite(spacing):
+            raise ValueError("spacing must be a finite number (booleans and numeric strings are not accepted).")
+        if start is not None and (type(start) not in {int, float} or not math.isfinite(start)):
+            raise ValueError("start must be a finite number (booleans and numeric strings are not accepted).")
         index = {"x": 0, "y": 1, "z": 2}[axis]
         for item in objects:
             self._require_object(item)

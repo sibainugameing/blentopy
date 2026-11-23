@@ -14,15 +14,18 @@ class ResourceLimitError(ValueError):
 
 
 def _modifier_factor(modifier: object) -> int:
+    """Return a bounded polygon multiplier for an unevaluated Blender modifier."""
+    cap = MAX_SCENE_POLYGONS + 1
     kind = str(getattr(modifier, "type", ""))
     if kind == "ARRAY":
-        return max(1, int(getattr(modifier, "count", 1)))
+        return min(cap, max(1, int(getattr(modifier, "count", 1))))
     if kind == "SUBSURF":
         levels = max(
             int(getattr(modifier, "levels", 0)),
             int(getattr(modifier, "render_levels", 0)),
         )
-        return 4 ** max(0, levels)
+        # 4**10 already exceeds the complete scene polygon budget.
+        return cap if levels >= 10 else 4 ** max(0, levels)
     if kind == "MIRROR":
         axes = getattr(modifier, "use_axis", (True, False, False))
         enabled = sum(bool(value) for value in axes)
@@ -30,7 +33,8 @@ def _modifier_factor(modifier: object) -> int:
     if kind == "SOLIDIFY":
         return 2
     if kind == "BEVEL":
-        return 1 + 2 * max(1, int(getattr(modifier, "segments", 1)))
+        segments = max(1, int(getattr(modifier, "segments", 1)))
+        return min(cap, 1 + 2 * segments)
     if kind == "BOOLEAN":
         return 2
     if kind in {"WEIGHTED_NORMAL", "NORMAL_EDIT", "SMOOTH_BY_ANGLE"}:
@@ -53,11 +57,15 @@ def estimate_object_polygons(obj: object, *, extra_modifier: object | None = Non
         return 0
     factor = 1
     for modifier in getattr(obj, "modifiers", ()):
-        factor *= _modifier_factor(modifier)
-        if factor * base > MAX_SCENE_POLYGONS:
-            return factor * base
+        multiplier = _modifier_factor(modifier)
+        if multiplier > MAX_SCENE_POLYGONS // max(1, base * factor):
+            return MAX_SCENE_POLYGONS + 1
+        factor *= multiplier
     if extra_modifier is not None:
-        factor *= _modifier_factor(extra_modifier)
+        multiplier = _modifier_factor(extra_modifier)
+        if multiplier > MAX_SCENE_POLYGONS // max(1, base * factor):
+            return MAX_SCENE_POLYGONS + 1
+        factor *= multiplier
     return base * factor
 
 
@@ -97,6 +105,13 @@ def ensure_scene_capacity(
     added_modifiers: int = 0,
 ) -> dict[str, int]:
     """Check planned work before creating objects or adding modifiers."""
+    for label, value in (
+        ("added_objects", added_objects),
+        ("added_polygons", added_polygons),
+        ("added_modifiers", added_modifiers),
+    ):
+        if type(value) is not int or value < 0:
+            raise ValueError(f"{label} must be a non-negative integer.")
     usage = scene_resource_usage(scene)
     planned = {
         "objects": usage["objects"] + added_objects,
