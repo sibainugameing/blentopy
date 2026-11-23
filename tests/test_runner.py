@@ -431,7 +431,9 @@ class PreviewRunnerTests(unittest.TestCase):
             def launch(command, **kwargs):
                 captured["command"] = command
                 env = kwargs["env"]
-                blend = Path(env["BLENTOPY_BLEND"])
+                blend = Path(env["BLENTOPY_PREVIEW_FINAL_BLEND"])
+                staged = Path(env["BLENTOPY_BLEND"])
+                staged.write_bytes(b"BLENDER-v300")
                 blend.write_bytes(b"BLENDER-v300")
                 Path(env["BLENTOPY_PREVIEW_STATUS"]).write_text(
                     json.dumps({"status": "ready", "blend": str(blend)}),

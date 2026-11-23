@@ -37,6 +37,9 @@ def main() -> int:
         workspace = Path(os.environ["BLENTOPY_WORKSPACE"]).resolve()
         output = Path(os.environ["BLENTOPY_OUTPUT"]).resolve()
         blend = Path(os.environ["BLENTOPY_BLEND"]).resolve()
+        final_blend = Path(
+            os.environ.get("BLENTOPY_PREVIEW_FINAL_BLEND", str(blend))
+        ).resolve()
         width = int(os.environ["BLENTOPY_WIDTH"])
         height = int(os.environ["BLENTOPY_HEIGHT"])
         fps = int(os.environ["BLENTOPY_FPS"])
@@ -84,15 +87,28 @@ def main() -> int:
 
         studio.blender_scene.frame_set(studio.blender_scene.frame_start)
         bpy.context.view_layer.update()
+        # Never let a failed GUI preview overwrite an existing project. Save to a
+        # unique sibling file, validate it, then atomically publish the new file.
+        blend.parent.mkdir(parents=True, exist_ok=True)
         bpy.ops.wm.save_as_mainfile(filepath=str(blend))
         if not blend.is_file() or blend.stat().st_size < 7:
-            raise RuntimeError(f"Blender did not create a complete project file: {blend}")
+            raise RuntimeError(f"Blender did not create a complete staged project file: {blend}")
         with blend.open("rb") as stream:
             if stream.read(7) != b"BLENDER":
-                raise RuntimeError(f"Blender saved an invalid project file: {blend}")
+                raise RuntimeError(f"Blender saved an invalid staged project file: {blend}")
 
-        _write_status(status_path, {"status": "ready", "blend": str(blend)})
-        print(f"BLENTOPY_PREVIEW_READY={blend}", flush=True)
+        os.replace(blend, final_blend)
+        # Reopen the published path so subsequent Ctrl+S in the GUI targets the
+        # final project rather than the temporary staging filename.
+        bpy.ops.wm.open_mainfile(filepath=str(final_blend))
+        if not final_blend.is_file() or final_blend.stat().st_size < 7:
+            raise RuntimeError(f"Blender did not publish a complete project file: {final_blend}")
+        with final_blend.open("rb") as stream:
+            if stream.read(7) != b"BLENDER":
+                raise RuntimeError(f"Published Blender project has an invalid signature: {final_blend}")
+
+        _write_status(status_path, {"status": "ready", "blend": str(final_blend)})
+        print(f"BLENTOPY_PREVIEW_READY={final_blend}", flush=True)
         return 0
     except Exception as exc:
         from blentopy.error_diagnostics import emit_worker_error

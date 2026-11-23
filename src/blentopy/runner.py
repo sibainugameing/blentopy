@@ -967,11 +967,13 @@ def preview_script(
         )
 
     token = uuid.uuid4().hex
+    staged_blend = blend.with_name(f".{blend.stem}.{token}.preview.blend")
     status_path = workspace_dir / f".blentopy-preview-{token}.json"
     log_path = blend.with_name(f"{blend.stem}-{token}.preview.log")
     env = _prepare_scene_environment(
-        source, output, blend, workspace_dir, width, height, fps, duration_seconds
+        source, output, staged_blend, workspace_dir, width, height, fps, duration_seconds
     )
+    env["BLENTOPY_PREVIEW_FINAL_BLEND"] = str(blend)
     env["BLENTOPY_PREVIEW_STATUS"] = str(status_path)
     command = [
         executable, "--factory-startup", "--disable-autoexec",
@@ -1062,3 +1064,4 @@ def preview_script(
                 time.sleep(0.1)
     finally:
         status_path.unlink(missing_ok=True)
+        staged_blend.unlink(missing_ok=True)
