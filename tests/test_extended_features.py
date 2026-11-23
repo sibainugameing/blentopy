@@ -101,7 +101,7 @@ class ExtendedGeometryTests(unittest.TestCase):
 
             mixin._run_file_operator = export
             result = Path(mixin.export_model("exports/model.obj"))
-            self.assertEqual(result, workspace / "exports" / "model.obj")
+            self.assertEqual(result, (workspace / "exports" / "model.obj").resolve())
             self.assertTrue(result.is_file())
             self.assertTrue(result.with_suffix(".mtl").is_file())
             self.assertFalse(any(".blentopy-" in item.name for item in result.parent.iterdir()))

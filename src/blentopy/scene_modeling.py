@@ -6,7 +6,7 @@ import math
 from typing import Sequence
 
 from .resource_limits import estimate_object_polygons, modifier_polygon_delta
-from .scene_types import MaterialSpec, Object3D, _identifier, _vector3
+from .scene_types import MaterialSpec, Object3D, _identifier, _validate_role, _vector3
 
 class SceneModelingMixin:
     """Create and edit scene geometry without changing the public SceneAPI."""
@@ -23,7 +23,7 @@ class SceneModelingMixin:
         role: str | None = None,
     ) -> Object3D:
         """Create an editable 3D polyline or auto-handle Bezier curve."""
-        self._validate_role(role)
+        _validate_role(role)
         if isinstance(points, (str, bytes)) or not 2 <= len(points) <= 4096:
             raise ValueError("A curve needs between 2 and 4096 control points.")
         coordinates = tuple(_vector3(point, "curve point") for point in points)
@@ -171,7 +171,7 @@ class SceneModelingMixin:
         line_spacing: float = 1,
     ) -> Object3D:
         """Create editable Blender text with optional typography settings."""
-        self._validate_role(role)
+        _validate_role(role)
         if not isinstance(body, str) or len(body) > 4096:
             raise ValueError("Text body must be a string of at most 4096 characters.")
         style = self._text_style(
@@ -278,7 +278,7 @@ class SceneModelingMixin:
         role: str | None = None,
     ) -> Object3D:
         """Duplicate an object and its data, preserving its world transform."""
-        self._validate_role(role)
+        _validate_role(role)
         source = self._resolve(target)
         object_id = self._allocate_id(source.kind) if id is None else _identifier(id)
         if object_id in self._objects:
@@ -307,7 +307,7 @@ class SceneModelingMixin:
         role: str | None = None,
     ) -> Object3D:
         """Create a lightweight linked-data instance sharing the source mesh/material data."""
-        self._validate_role(role)
+        _validate_role(role)
         source = self._resolve(target)
         object_id = self._allocate_id(source.kind) if id is None else _identifier(id)
         if object_id in self._objects:

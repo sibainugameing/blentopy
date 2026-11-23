@@ -359,6 +359,7 @@ class ResourceLimitTests(unittest.TestCase):
         self.assertEqual(estimate_object_polygons(obj), MAX_SCENE_POLYGONS + 1)
 
     def test_capacity_rejects_negative_or_non_integer_deltas(self):
+        from types import SimpleNamespace
         from blentopy.resource_limits import ensure_scene_capacity
 
         scene = SimpleNamespace(objects=[])

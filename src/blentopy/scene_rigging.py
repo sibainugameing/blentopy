@@ -5,7 +5,7 @@ from __future__ import annotations
 import math
 from typing import Any, Sequence
 
-from .scene_types import Object3D, _identifier, _normalize_bone_definitions
+from .scene_types import Object3D, _identifier, _normalize_bone_definitions, _validate_role
 
 class SceneRiggingMixin:
     """Character rigging and physics helpers backed by Blender APIs."""
@@ -17,7 +17,7 @@ class SceneRiggingMixin:
         role: str | None = "rig",
     ) -> Object3D:
         """Create an armature from a validated hierarchy of at most 64 bones."""
-        self._validate_role(role)
+        _validate_role(role)
         definitions = _normalize_bone_definitions(bones)
         object_id = self._allocate_id("armature") if id is None else _identifier(id)
         if object_id in self._objects:

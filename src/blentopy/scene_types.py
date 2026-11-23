@@ -139,6 +139,11 @@ def _bounded_integer(value: Any, label: str, minimum: int, maximum: int) -> int:
     return value
 
 
+def _validate_role(role: str | None) -> None:
+    if role is not None and (not isinstance(role, str) or len(role) > 64):
+        raise ValueError("role must be a string of at most 64 characters.")
+
+
 def _identifier(value: str) -> str:
     if not isinstance(value, str) or not value.strip():
         raise ValueError("Object id must be a non-empty string.")
